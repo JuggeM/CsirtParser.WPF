@@ -154,7 +154,7 @@ CsirtParser processes artefacts from potentially compromised systems. Run it ins
 
 ## Acknowledgements
 
-Built around [UAC (Unix Artefact Collector)](https://github.com/tclahr/uac) by Teo Chua. UAC does the collection — CsirtParser does the analysis.
+Built around [UAC (Unix Artefact Collector)](https://github.com/tclahr/uac) by Thiago Canozzo. UAC does the collection — CsirtParser does the analysis.
 
 ---
 
