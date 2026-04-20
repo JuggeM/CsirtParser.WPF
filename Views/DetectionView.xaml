@@ -1,0 +1,117 @@
+<UserControl x:Class="CsirtParser.WPF.Views.DetectionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:CsirtParser.WPF.Views"
+             x:Name="Root">
+    <UserControl.Resources>
+        <Style x:Key="ForensicTip" TargetType="ToolTip">
+            <Setter Property="MaxWidth"   Value="320"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Padding"    Value="10,8"/>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <TextBlock Text="Detection settings" Style="{StaticResource SectionTitle}"/>
+
+        <!-- Brute-force threshold -->
+        <TextBlock Style="{StaticResource FieldLabel}">
+            Brute-force threshold (failed logins before flagging an IP)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="SSH / login brute-force threshold" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Number of failed login attempts from a single IP before it is flagged as a brute-force attempt in QuickWins. Lower values catch slow/low-volume spraying attacks but may increase false positives on misconfigured legitimate clients. 5 is a reasonable default — raise to 10-15 for noisy environments.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="40"/>
+            </Grid.ColumnDefinitions>
+            <Slider Grid.Column="0" Minimum="2" Maximum="30"
+                    Value="{Binding Config.BruteForceThreshold}"
+                    TickFrequency="1" IsSnapToTickEnabled="True"
+                    VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="{Binding Config.BruteForceThreshold}"
+                       FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Web brute-force RPM -->
+        <TextBlock Style="{StaticResource FieldLabel}">
+            Web brute-force window (requests per minute per IP)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Web brute-force rate threshold" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Maximum requests per minute from a single IP before it is flagged in web log analysis. Useful for detecting credential stuffing, vulnerability scanning, and automated exploitation tools. Lower values flag aggressive scanners early. Raise for high-traffic sites where legitimate users may burst above the default.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <Grid Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="40"/>
+            </Grid.ColumnDefinitions>
+            <Slider Grid.Column="0" Minimum="5" Maximum="300"
+                    Value="{Binding Config.WebBruteForceRpm}"
+                    TickFrequency="5" IsSnapToTickEnabled="True"
+                    VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="{Binding Config.WebBruteForceRpm}"
+                       FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+
+        <Separator/>
+
+        <!-- Rank 1 keywords -->
+        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,4,0,4">
+            Suspicious keywords — Rank 1 (High)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Rank 1 — high severity keywords" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Lines matching these keywords are treated as strong indicators of active compromise or post-exploitation activity. They appear at the top of QuickWins and are the first thing an analyst should review. Only add patterns here when they are unambiguous indicators — avoid broad terms that produce false positives. Examples: reverse shell commands, kernel tampering, privilege escalation tools.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <views:KeywordTagEditor ItemsSource="{Binding Config.Rank1Keywords}"
+                             TagBackground="#EEEDFE" TagForeground="#3C3489"
+                             Margin="0,0,0,16"/>
+
+        <!-- Rank 2 keywords -->
+        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,4">
+            Suspicious keywords — Rank 2 (Medium)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Rank 2 — medium severity keywords" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Lines matching these keywords are flagged as suspicious but require analyst review to confirm. They appear below Rank 1 findings in QuickWins. Suitable for reconnaissance tools, download utilities, encoding commands, and other dual-use behaviours that are interesting but not definitive indicators of compromise on their own.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <views:KeywordTagEditor ItemsSource="{Binding Config.Rank2Keywords}"
+                             TagBackground="#FAEEDA" TagForeground="#633806"
+                             Margin="0,0,0,16"/>
+
+        <!-- Whitelist -->
+        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,4">
+            Whitelist patterns (suppress matching lines)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Whitelist — suppress known-good lines" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Lines containing any of these patterns are excluded from QuickWins even if they match a suspicious keyword. Use this to suppress known security tools, monitoring agents, or benign system activity that would otherwise generate noise. Be conservative — a whitelist entry that is too broad can mask real findings. Entries are matched case-insensitively anywhere in the log line.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <views:KeywordTagEditor ItemsSource="{Binding Config.WhitelistPatterns}"
+                             TagBackground="#F1EFE8" TagForeground="#5F5E5A"/>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,368 @@
+<UserControl x:Class="CsirtParser.WPF.Views.ParsersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="ForensicTip" TargetType="ToolTip">
+            <Setter Property="MaxWidth"   Value="320"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Padding"    Value="10,8"/>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <TextBlock Text="Parsers" Style="{StaticResource SectionTitle}"/>
+        <TextBlock Text="Toggle which log types to include. Hover each card for forensic context."
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="12" Margin="0,0,0,16"/>
+
+        <UniformGrid Columns="2" HorizontalAlignment="Stretch">
+
+            <!-- Auth -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Auth / Secure log" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses /var/log/auth.log and /var/log/secure. Detects failed and successful SSH logins, sudo usage, PAM errors, and new user creation. Runs brute-force detection across all source IPs. High forensic value usually the first place to check for initial access.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Auth / Secure" FontWeight="Medium"/>
+                        <TextBlock Text="SSH, PAM, sudo" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseAuth}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Crontab scanner -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Crontab scanner" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Scans actual crontab definition files for suspicious persistent job entries: /etc/crontab, /etc/cron.d/*, /var/spool/cron/crontabs/* (Debian/Ubuntu), and /var/spool/cron/* (RHEL/CentOS). Flags reverse shells, downloaders to /tmp, base64 decoders, and other attacker-planted persistence. Complements Syslog which catches runtime cron execution. High forensic value attackers frequently use cron for persistence.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Crontab scanner" FontWeight="Medium"/>
+                        <TextBlock Text="Job definitions, persistence" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseCrontab}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Messages -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Messages log" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses /var/log/messages. Covers general system activity, daemon starts/stops, kernel messages, and application errors. Useful for establishing a timeline around the incident. Filters known benign noise automatically.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Messages" FontWeight="Medium"/>
+                        <TextBlock Text="/var/log/messages" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseMessages}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Syslog -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Syslog" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses /var/log/syslog and kern.log. Captures kernel-level events: OOM kills, kernel panics, segfaults, hardware errors, RAID degraded, and I/O errors. Also detects suspicious cron CMD executions (Debian/Ubuntu write cron logs to syslog) reverse shells, downloaders, and one-liner executions planted in cron jobs. Essential on Debian/Ubuntu where cron does not have a separate log file.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Syslog" FontWeight="Medium"/>
+                        <TextBlock Text="syslog, kern.log + cron events" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseSyslog}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Web logs -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Web logs" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses Apache and Nginx access logs. Detects web brute-force attacks, directory traversal, command injection, and suspicious user agents. Flags high request rates per IP. Useful for identifying web application exploitation and C2 over HTTP.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Web logs" FontWeight="Medium"/>
+                        <TextBlock Text="Apache, Nginx access" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseWebLogs}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Docker -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Docker" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses Docker daemon logs, container events, and image metadata. Detects privileged container launches, unusual image pulls, and container escapes. Attackers may abuse Docker to gain host root access or run cryptominers in isolated containers.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Docker" FontWeight="Medium"/>
+                        <TextBlock Text="Containers &amp; events" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseDocker}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Audit -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Audit log" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses /var/log/audit/audit.log (auditd). Provides syscall-level visibility: file access, process execution (execve), privilege changes, and network connections. Extremely high forensic value when auditd rules are in place. Can reveal attacker tools, lateral movement, and data staging.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Audit log" FontWeight="Medium"/>
+                        <TextBlock Text="auditd records" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseAudit}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Process -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Processes" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses ps aux snapshots from collection time. Identifies suspicious processes: reverse shells, cryptominers, netcat listeners, and renamed binaries. Groups by user and flags processes running from /tmp or /dev/shm. Note: point-in-time snapshot only, not full process history.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Processes" FontWeight="Medium"/>
+                        <TextBlock Text="ps aux snapshot" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseProcess}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Network -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Network" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses netstat and ss output from collection time. Shows open ports, established connections, and listening services. Useful for identifying C2 beacons, unexpected outbound connections, and backdoor listeners. Cross-reference with process output to map connections to specific PIDs.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Network" FontWeight="Medium"/>
+                        <TextBlock Text="netstat, ss output" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseNetwork}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Persistence -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Persistence" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses crontabs, systemd unit files, rc.local, and shell profile scripts. Detects attacker-planted persistence mechanisms that survive reboots. Flags non-standard unit files, cron entries from unusual paths, and login script modifications. High value for understanding attacker dwell time.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Persistence" FontWeight="Medium"/>
+                        <TextBlock Text="crontabs, systemd units" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParsePersistence}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- File system -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="File system" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses find and stat output from the collection. Identifies recently modified files, SUID/SGID binaries, world-writable directories, and files in staging locations like /tmp and /dev/shm. Useful for finding dropped tools, webshells, and exfiltration staging areas. Can be slow on large collections.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="File system" FontWeight="Medium"/>
+                        <TextBlock Text="find, stat output" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseFileSystem}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Live response -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Live response" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses UAC live response artefacts: user accounts, sudoers, loaded kernel modules, ARP cache, and routing tables. Provides a system state snapshot at collection time. Useful for identifying privilege escalation paths, network pivoting, and unauthorised accounts.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Live response" FontWeight="Medium"/>
+                        <TextBlock Text="UAC live data" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseLiveResponse}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Body file -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Body file" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses the UAC bodyfile.txt (mactime/TSK format). Scores every file entry based on path, suspicious keywords, executable extensions, recency, and size. Only entries above the minimum score threshold appear in QuickWins. High value for finding dropped tools, webshells, and attacker staging areas. Can be slow on large collections disable if not needed.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Body file" FontWeight="Medium"/>
+                        <TextBlock Text="File timeline scoring" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseBodyFile}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Journal -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="systemd Journal" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses binary systemd user journal files (user-1000.journal etc.). Extracts sudo commands, SSH events, shell executions, and suspicious process launches for UID 1000 and above. Forensically valuable because it captures user activity independently of bash history and is difficult to forge. Requires K4os.Compression.LZ4 NuGet package for LZ4-compressed entries.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="systemd Journal" FontWeight="Medium"/>
+                        <TextBlock Text="user-*.journal binary logs" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseJournal}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Bash history -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Bash history" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .bash_history files from root and all user home directories. Detects reverse shells, credential access (/etc/shadow, hashcat, john), droppers (wget/curl to /tmp), SUID manipulation, lateral movement via SSH, and anti-forensics (history -c, HISTFILE=/dev/null, shred). When HISTTIMEFORMAT is set, timestamps are parsed and large time gaps between commands are flagged. Anti-forensics commands are always surfaced regardless of count. Note: history can be incomplete or deliberately cleared absence of findings here is not a clean bill of health.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Bash history" FontWeight="Medium"/>
+                        <TextBlock Text=".bash_history, all users" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseBashHistory}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+        </UniformGrid>
+    </StackPanel>
+</UserControl>

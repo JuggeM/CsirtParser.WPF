@@ -1,0 +1,152 @@
+<UserControl x:Class="CsirtParser.WPF.Views.BodyFileView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:CsirtParser.WPF.Views">
+    <UserControl.Resources>
+        <Style x:Key="ForensicTip" TargetType="ToolTip">
+            <Setter Property="MaxWidth"   Value="320"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Padding"    Value="10,8"/>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <TextBlock Text="Body file settings" Style="{StaticResource SectionTitle}"/>
+        <TextBlock Text="Tune the scoring knobs that decide which body file entries get flagged in QuickWins."
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="12" Margin="0,0,0,20"/>
+
+        <!-- Min score -->
+        <TextBlock Style="{StaticResource FieldLabel}">
+            Minimum score to flag
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Scoring threshold" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Each body file entry accumulates a score based on risk factors: suspicious path (+2), suspicious keyword in name (+3), recently modified file (+2), executable extension (+2), small/hidden file (+1), and others. Only entries reaching this threshold appear in QuickWins. Lower values surface more findings but increase noise. Raise to 8-10 on large collections to focus on the most suspicious files only.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="40"/>
+            </Grid.ColumnDefinitions>
+            <Slider Minimum="1" Maximum="15"
+                    Value="{Binding Config.BodyFileMinScore}"
+                    TickFrequency="1" IsSnapToTickEnabled="True"
+                    VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="{Binding Config.BodyFileMinScore}"
+                       FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Recency window -->
+        <TextBlock Style="{StaticResource FieldLabel}">
+            Recency window — days for mtime boost
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Modification time recency boost" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Files modified within this many days before the collection date receive a score boost, making them more likely to surface in QuickWins. Set this to the approximate timeframe of the suspected incident. A tighter window (7-14 days) focuses attention on very recent activity; a wider window (60-90 days) is useful when the intrusion start date is unknown.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="40"/>
+            </Grid.ColumnDefinitions>
+            <Slider Minimum="1" Maximum="90"
+                    Value="{Binding Config.BodyFileRecencyDays}"
+                    TickFrequency="1" IsSnapToTickEnabled="True"
+                    VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="{Binding Config.BodyFileRecencyDays}"
+                       FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Min file size -->
+        <TextBlock Style="{StaticResource FieldLabel}">
+            Minimum file size to flag (bytes)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Minimum file size filter" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Files smaller than this size are excluded from flagging. Empty files and very small files are common on Linux systems and rarely forensically relevant. The default of 1024 bytes (1 KB) filters out most noise. Raise to 4096+ bytes on systems with many small config files to reduce false positives.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <TextBox Text="{Binding Config.BodyFileMinSizeBytes, UpdateSourceTrigger=PropertyChanged}"
+                 Width="160" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+
+        <!-- Max findings per folder -->
+        <TextBlock Style="{StaticResource FieldLabel}">
+            Max findings per folder (caps QuickWins noise)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Per-folder findings cap" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Limits how many flagged entries from a single directory appear in QuickWins. Prevents noisy directories (e.g. /tmp with many files) from dominating the report. The highest-scoring entries within each folder are shown first. Raise this value if you need full visibility into a specific directory; lower it if reports are too long to triage quickly.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <TextBox Text="{Binding Config.BodyFileMaxFindingsFolder, UpdateSourceTrigger=PropertyChanged}"
+                 Width="100" HorizontalAlignment="Left" Margin="0,0,0,20"/>
+
+        <Separator/>
+
+        <!-- Require keyword -->
+        <CheckBox IsChecked="{Binding Config.BodyFileRequireKeyword}" Margin="0,8,0,20">
+            <CheckBox.Content>
+                <TextBlock TextWrapping="Wrap">
+                    Require a suspicious keyword match before flagging (recommended — reduces false positives)
+                </TextBlock>
+            </CheckBox.Content>
+            <CheckBox.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Keyword gate" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">When enabled, a file must match at least one suspicious keyword in its path or name in addition to meeting the minimum score. This significantly reduces false positives from legitimate recently-modified system files. Disable only when you suspect an attacker used non-obvious file names and want to surface all high-scoring entries regardless of name.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </CheckBox.ToolTip>
+        </CheckBox>
+
+        <Separator/>
+
+        <!-- Suspicious keywords -->
+        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,8,0,4">
+            Suspicious keywords (matched against file path and name)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Body file keyword list" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">These keywords are matched case-insensitively against the full file path and file name in the body file. A match contributes to the entry's score and is required for flagging when the keyword gate is enabled. Add attacker tool names, known malware filenames, or any strings specific to your investigation that you want to surface.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <views:KeywordTagEditor ItemsSource="{Binding Config.BodyFileSuspiciousKeywords}"
+                                TagBackground="#EEEDFE" TagForeground="#3C3489"
+                                Margin="0,0,0,16"/>
+
+        <!-- Whitelist prefixes -->
+        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,4">
+            Whitelist path prefixes (suppress entries starting with these paths)
+            <TextBlock.ToolTip>
+                <ToolTip Style="{StaticResource ForensicTip}">
+                    <StackPanel>
+                        <TextBlock Text="Body file path whitelist" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap">Files whose paths start with any of these prefixes are excluded from body file analysis entirely. Use this to suppress known-good system directories that generate noise. Be specific — whitelisting /usr/ suppresses all files under that tree. Add paths that are relevant to your environment such as your EDR agent directory or application install paths.</TextBlock>
+                    </StackPanel>
+                </ToolTip>
+            </TextBlock.ToolTip>
+        </TextBlock>
+        <views:KeywordTagEditor ItemsSource="{Binding Config.BodyFileWhitelistPrefixes}"
+                                TagBackground="#F1EFE8" TagForeground="#5F5E5A"/>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,133 @@
+﻿<Window x:Class="CsirtParser.WPF.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:CsirtParser.WPF.ViewModels"
+        xmlns:views="clr-namespace:CsirtParser.WPF.Views"
+        Title="CSIRT UAC Parser"
+        Height="640" Width="960"
+        MinHeight="560" MinWidth="820"
+        WindowStartupLocation="CenterScreen"
+        Background="White">
+
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ── Sidebar ─────────────────────────────────────────────── -->
+        <Border Grid.Column="0"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,1,0">
+            <DockPanel>
+
+                <!-- App title -->
+                <Border DockPanel.Dock="Top"
+                        Padding="14,16,14,14"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,0,0,1">
+                    <StackPanel>
+                        <TextBlock Text="CSIRT UAC Parser"
+                                   FontSize="14" FontWeight="SemiBold"/>
+                        <TextBlock Text="Configuration"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Run button at bottom -->
+                <Border DockPanel.Dock="Bottom" Padding="12">
+                    <Button Content="▶  Run parser"
+                            Style="{StaticResource PrimaryButton}"
+                            Command="{Binding RunCommand}"
+                            IsEnabled="{Binding CanRun}"
+                            Height="36"/>
+                </Border>
+
+                <!-- Nav items -->
+                <StackPanel Margin="0,8,0,0">
+                    <RadioButton Content="Case setup"
+                                 Style="{StaticResource NavButton}"
+                                 IsChecked="True"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="CaseSetup"/>
+
+                    <RadioButton Content="Parsers"
+                                 Style="{StaticResource NavButton}"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="Parsers"/>
+
+                    <RadioButton Content="Detection"
+                                 Style="{StaticResource NavButton}"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="Detection"/>
+
+                    <RadioButton Content="Body file"
+                                 Style="{StaticResource NavButton}"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="BodyFile"/>
+
+                    <RadioButton Content="Output"
+                                 Style="{StaticResource NavButton}"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="Output"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Content area ────────────────────────────────────────── -->
+        <ScrollViewer Grid.Column="1"
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="24,20">
+            <ContentControl>
+                <ContentControl.Style>
+                    <Style TargetType="ContentControl">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="CaseSetup">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:CaseSetupView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="Parsers">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:ParsersView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="Detection">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:DetectionView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="BodyFile">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:BodyFileView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="Output">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:OutputView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ContentControl.Style>
+            </ContentControl>
+        </ScrollViewer>
+    </Grid>
+</Window>

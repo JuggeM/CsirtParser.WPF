@@ -1,0 +1,108 @@
+<UserControl x:Class="CsirtParser.WPF.Views.CaseSetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <TextBlock Text="Case setup" Style="{StaticResource SectionTitle}"/>
+
+        <!-- Case name -->
+        <TextBlock Text="Case name" Style="{StaticResource FieldLabel}"/>
+        <TextBox Text="{Binding Config.CaseName, UpdateSourceTrigger=PropertyChanged}"
+                 Margin="0,0,0,14"/>
+
+        <!-- Analyst name -->
+        <TextBlock Text="Analyst name" Style="{StaticResource FieldLabel}"/>
+        <TextBox Text="{Binding Config.AnalystName, UpdateSourceTrigger=PropertyChanged}"
+                 Margin="0,0,0,14"/>
+
+        <!-- Case folder -->
+        <TextBlock Text="Case folder" Style="{StaticResource FieldLabel}"/>
+        <Grid Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0"
+                     Text="{Binding Config.CaseFolderPath, UpdateSourceTrigger=PropertyChanged}"
+                     IsReadOnly="True"
+                     Margin="0,0,8,0"/>
+            <Button Grid.Column="1"
+                    Content="Browse…"
+                    Style="{StaticResource StandardButton}"
+                    Command="{Binding BrowseCommand}"/>
+        </Grid>
+
+        <!-- Detected collections -->
+        <TextBlock Text="Collections detected" Style="{StaticResource FieldLabel}"/>
+
+        <!-- Progress bar — visible only while scanning -->
+        <StackPanel Margin="0,0,0,6"
+                    Visibility="{Binding IsScanning,
+                        Converter={StaticResource BoolToVisibilityConverter}}">
+            <ProgressBar IsIndeterminate="True"
+                         Height="4"
+                         Margin="0,0,0,4"
+                         Foreground="{StaticResource AccentBrush}"/>
+            <TextBlock Text="{Binding ScanStatus}"
+                       FontSize="11"
+                       Foreground="{StaticResource TextSecondaryBrush}"/>
+        </StackPanel>
+
+        <!-- Status text when not scanning -->
+        <TextBlock Text="{Binding ScanStatus}"
+                   FontSize="11"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Margin="0,0,0,4">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsScanning}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+        <Border Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="10,8"
+                Margin="0,0,0,20"
+                MinHeight="64">
+            <ItemsControl ItemsSource="{Binding DetectedCollections}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   FontFamily="Consolas"
+                                   FontSize="12"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,1"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+
+        <Separator/>
+
+        <!-- Date range filter -->
+        <TextBlock Text="Date range filter (optional)" Style="{StaticResource FieldLabel}"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DatePicker Grid.Column="0"
+                        SelectedDate="{Binding Config.FilterFrom}"
+                        Height="32"/>
+            <TextBlock Grid.Column="1"
+                       Text="to"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="10,0"/>
+            <DatePicker Grid.Column="2"
+                        SelectedDate="{Binding Config.FilterTo}"
+                        Height="32"/>
+        </Grid>
+    </StackPanel>
+</UserControl>
