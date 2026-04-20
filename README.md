@@ -75,11 +75,10 @@ CaseFolder\
 
 1. Open CsirtParser
 2. On the **Case Setup** tab, set the case name, analyst name, and browse to your case folder
-3. Click **Scan** — UAC archives in `Upload\` are extracted automatically
-4. On the **Parsers** tab, toggle which parsers to run (all enabled by default)
-5. On the **Detection** tab, adjust brute-force thresholds and keyword lists if needed
-6. Click **Run** — output appears in `Processed\` and the log pane shows progress
-7. Open `QuickWins.rtf` in your case folder to start triage
+3. On the **Parsers** tab, toggle which parsers to run (all enabled by default)
+4. On the **Detection** tab, adjust brute-force thresholds and keyword lists if needed
+5. Click **Run** — output appears in `Processed\` and the log pane shows progress
+6. Open `QuickWins.rtf` in your case folder to start triage
 
 ---
 
