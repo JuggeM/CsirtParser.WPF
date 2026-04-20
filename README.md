@@ -2,7 +2,7 @@
 
 A Windows desktop application for parsing and triaging [UAC (Unix Artefact Collector)](https://github.com/tclahr/uac) forensic collections. Designed for DFIR analysts who need to move quickly from raw collection data to actionable findings.
 
-![CsirtParser UI](docs/screenshot.png)
+![CsirtParser UI](docs/screenshot.PNG)
 
 ---
 
