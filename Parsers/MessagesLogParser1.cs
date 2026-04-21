@@ -9,7 +9,7 @@ using Output;
 
 namespace Parsers
 {
-    public class MessagesLogParser : LogFileParser, IAttachNormalizedWriter
+    public class MessagesLogParser : LogFileParser
     {
         private NormalizedCsvWriter _normalizedWriter;
         public void AttachNormalizedWriter(NormalizedCsvWriter writer) => _normalizedWriter = writer;
@@ -155,6 +155,8 @@ namespace Parsers
 
                 if (ts < firstSeen) firstSeen = ts;
                 if (ts > lastSeen) lastSeen = ts;
+
+                if (!IsInRange(ts)) continue;
 
                 string host = ExtractHostname(line);
                 string daemon = ExtractDaemon(line);

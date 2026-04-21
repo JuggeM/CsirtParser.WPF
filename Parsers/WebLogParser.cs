@@ -9,7 +9,7 @@ using Output;
 
 namespace Parsers
 {
-    public class WebLogParser : LogFileParser, IAttachNormalizedWriter
+    public class WebLogParser : LogFileParser
     {
         private NormalizedCsvWriter _normalizedWriter;
         public void AttachNormalizedWriter(NormalizedCsvWriter writer) => _normalizedWriter = writer;
@@ -175,6 +175,8 @@ namespace Parsers
                     if (tsUtc < firstSeen) firstSeen = tsUtc;
                     if (tsUtc > lastSeen) lastSeen = tsUtc;
                 }
+
+                if (!IsInRange(tsUtc)) continue;
 
                 var m = Combined.Match(line);
                 if (!m.Success)

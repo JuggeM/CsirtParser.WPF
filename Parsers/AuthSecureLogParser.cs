@@ -10,7 +10,7 @@ using Output;
 
 namespace Parsers
 {
-    public class AuthSecureLogParser : LogFileParser, IAttachSessionTracker, IAttachNormalizedWriter
+    public class AuthSecureLogParser : LogFileParser
     {
         private SessionTracker _sessionTracker;
         public void AttachSessionTracker(SessionTracker tracker) => _sessionTracker = tracker;
@@ -165,6 +165,8 @@ namespace Parsers
                     if (ts < firstSeen) firstSeen = ts;
                     if (ts > lastSeen) lastSeen = ts;
                 }
+
+                if (!IsInRange(ts)) continue;
 
                 string hostname = ExtractHostname(line);
                 string daemon = ExtractDaemonName(line) ?? "AUTH";

@@ -121,15 +121,6 @@ namespace Parsers
             string lineLo = line.ToLowerInvariant();
             string msgLo = msg.ToLowerInvariant();
 
-            // ── Pre-suppress: known-benign lines that contain Critical keywords ──
-            // Checked BEFORE the Critical scan so they are never falsely escalated.
-            //
-            // rasdaemon registering its MCE tracepoint at boot — not a hardware error.
-            // Actual MCEs look like: "Hardware Error: CPU 0: Machine Check Exception..."
-            if ((daemon ?? "").Equals("rasdaemon", StringComparison.OrdinalIgnoreCase)
-                && lineLo.Contains("event enabled"))
-                return "Info";
-
             // ── System Critical ───────────────────────────────────────
             foreach (var kw in CriticalSystemKeywords)
                 if (Regex.IsMatch(lineLo, kw)) return "Critical";
@@ -238,6 +229,8 @@ namespace Parsers
 
                 if (ts < firstSeen) firstSeen = ts;
                 if (ts > lastSeen) lastSeen = ts;
+
+                if (!IsInRange(ts)) continue;
 
                 string ip = ExtractIPv4(line);
                 string user = ExtractUser(line);

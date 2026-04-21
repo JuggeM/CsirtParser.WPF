@@ -9,7 +9,7 @@ using Output;
 
 namespace Parsers
 {
-    public class AuditLogParser : LogFileParser, IAttachNormalizedWriter
+    public class AuditLogParser : LogFileParser
     {
         private NormalizedCsvWriter _normalizedWriter;
         public void AttachNormalizedWriter(NormalizedCsvWriter writer) => _normalizedWriter = writer;
@@ -192,6 +192,8 @@ namespace Parsers
                         if (ts < firstSeen) firstSeen = ts;
                         if (ts > lastSeen) lastSeen = ts;
                     }
+
+                    if (!IsInRange(ts)) continue;
 
                     if (tier == "Info")
                     {

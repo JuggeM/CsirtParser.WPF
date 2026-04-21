@@ -29,7 +29,7 @@ namespace Parsers
         public int Priority { get; set; } = 6;
     }
 
-    public class JournalFileParser : LogFileParser, IAttachNormalizedWriter
+    public class JournalFileParser : LogFileParser
     {
         private NormalizedCsvWriter _normalizedWriter;
         public void AttachNormalizedWriter(NormalizedCsvWriter w) => _normalizedWriter = w;
@@ -332,6 +332,8 @@ namespace Parsers
                     if (e.TimestampUtc < firstSeen) firstSeen = e.TimestampUtc;
                     if (e.TimestampUtc > lastSeen) lastSeen = e.TimestampUtc;
                 }
+
+                if (!IsInRange(e.TimestampUtc)) continue;
 
                 string tier = ClassifyEntry(e);
                 if (tier == "Info") continue;

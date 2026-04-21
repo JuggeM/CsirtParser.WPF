@@ -306,6 +306,9 @@ namespace Parsers
                 prevTs = pendingTs;
                 pendingTs = null;
 
+                // Only filter by date when a timestamp is actually known
+                if (cmdTs != DateTime.MinValue && !IsInRange(cmdTs)) continue;
+
                 string tier = ClassifyCommand(cmd);
                 if (tier == "Info") continue;
 

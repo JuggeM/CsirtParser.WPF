@@ -39,24 +39,59 @@
         <Separator/>
 
         <!-- Run bar -->
-        <Grid Margin="0,8,0,12">
+        <Grid Margin="0,8,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
+
+            <!-- Run button -->
             <Button Grid.Column="0"
                     Content="▶  Run parser"
                     Style="{StaticResource PrimaryButton}"
                     Width="130"
                     Command="{Binding RunCommand}"
                     IsEnabled="{Binding CanRun}"/>
-            <TextBlock Grid.Column="1"
+
+            <!-- Cancel button — only visible while running -->
+            <Button Grid.Column="1"
+                    Content="■  Cancel"
+                    Style="{StaticResource StandardButton}"
+                    Width="90"
+                    Margin="8,0,0,0"
+                    Command="{Binding CancelCommand}"
+                    Visibility="{Binding IsRunning,
+                        Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+            <!-- Status text -->
+            <TextBlock Grid.Column="2"
                        Text="{Binding RunStatusText}"
                        VerticalAlignment="Center"
                        Foreground="{StaticResource TextSecondaryBrush}"
                        FontSize="12"
                        Margin="12,0,0,0"/>
+
+            <!-- Progress percentage -->
+            <TextBlock Grid.Column="3"
+                       Text="{Binding ProgressText}"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       FontSize="12"
+                       Margin="12,0,0,0"
+                       Visibility="{Binding IsRunning,
+                           Converter={StaticResource BoolToVisibilityConverter}}"/>
         </Grid>
+
+        <!-- Progress bar — only visible while running -->
+        <ProgressBar Height="4"
+                     Margin="0,0,0,12"
+                     Minimum="0"
+                     Maximum="1"
+                     Value="{Binding Progress, Mode=OneWay}"
+                     Visibility="{Binding IsRunning,
+                         Converter={StaticResource BoolToVisibilityConverter}}"/>
 
         <!-- Live log output -->
         <Border Background="{StaticResource SurfaceBrush}"
@@ -82,5 +117,6 @@
                 </ItemsControl>
             </ScrollViewer>
         </Border>
+
     </StackPanel>
 </UserControl>

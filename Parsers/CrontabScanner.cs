@@ -18,7 +18,7 @@ namespace Parsers
     ///   /var/spool/cron/crontabs/*   (per-user crontabs)
     ///   /var/spool/cron/*            (RHEL/CentOS variant)
     /// </summary>
-    public class CrontabScanner : LogFileParser, IAttachNormalizedWriter
+    public class CrontabScanner : LogFileParser
     {
         private NormalizedCsvWriter _normalizedWriter;
         public void AttachNormalizedWriter(NormalizedCsvWriter writer) => _normalizedWriter = writer;
@@ -164,6 +164,11 @@ namespace Parsers
                 if (fileTime > lastSeen) lastSeen = fileTime;
             }
             catch { }
+
+            // If the file's modification time is known and entirely outside the
+            // analyst's filter window, skip the file — crontab entries have no
+            // per-line timestamps so file mtime is the only proxy available.
+            if (!IsInRange(fileTime)) return;
 
             string relativePath = logFilePath;
 

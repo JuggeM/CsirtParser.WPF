@@ -307,6 +307,7 @@ public class ParserOrchestrator
                     Path.Combine(outputDir, "Normalized_JOURNAL.csv"), append: false);
                 var journalParser = new JournalFileParser();
                 TryAttachWriter(journalParser, csv);
+                journalParser.SetFilter(_config.FilterFrom, _config.FilterTo);
                 ParseFileSet("JOURNAL", journalFiles, journalParser, outputDir, acc);
             }
             else
@@ -437,6 +438,7 @@ public class ParserOrchestrator
         using var csv = new NormalizedCsvWriter(
             Path.Combine(outputDir, $"Normalized_{logKey}.csv"), append: false);
         TryAttachWriter(parser, csv);
+        parser.SetFilter(_config.FilterFrom, _config.FilterTo);
         ParseFileSet(logKey, logFiles, parser, outputDir, acc);
     }
 
@@ -460,6 +462,7 @@ public class ParserOrchestrator
             var parser = new AuthSecureLogParser();
             TryAttachTracker(parser, sessionTracker);
             TryAttachWriter(parser, csv);
+            parser.SetFilter(_config.FilterFrom, _config.FilterTo);
             ParseFileSet(logKey, logFiles, parser, outputDir, acc);
         }
 
@@ -509,6 +512,7 @@ public class ParserOrchestrator
             Path.Combine(outputDir, "Normalized_CRONTAB.csv"), append: false);
         var scanner = new CrontabScanner();
         TryAttachWriter(scanner, csv);
+        scanner.SetFilter(_config.FilterFrom, _config.FilterTo);
         ParseFileSet(logKey, crontabFiles, scanner, outputDir, acc,
             sectionTitle: "[CRONTAB] Suspicious Job Definitions",
             emptyMessage: "  No suspicious crontab entries found.");
@@ -694,6 +698,7 @@ public class ParserOrchestrator
 
         var parser = new BashHistoryParser();
         TryAttachWriter(parser, csv);
+        parser.SetFilter(_config.FilterFrom, _config.FilterTo);
 
         var allFindings = new List<string>();
         var perFileFindings = new List<(string FilePath, List<string> Findings)>();
