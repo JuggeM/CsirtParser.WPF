@@ -25,6 +25,9 @@ namespace Parsers
         private NormalizedCsvWriter _normalizedWriter;
         public void AttachNormalizedWriter(NormalizedCsvWriter writer) => _normalizedWriter = writer;
 
+        private string _hostname = string.Empty;
+        public void AttachHostname(string hostname) => _hostname = hostname ?? string.Empty;
+
         // ════════════════════════════════════════════════════════════════
         // Classification tables
         // ════════════════════════════════════════════════════════════════
@@ -294,7 +297,6 @@ namespace Parsers
                 DateTime cmdTs = pendingTs ?? DateTime.MinValue;
 
                 // Timestamp gap detection — gaps > 12 h between commands are notable
-                // (could indicate session break, or that history was tampered between)
                 string gapNote = string.Empty;
                 if (pendingTs.HasValue && prevTs.HasValue)
                 {
@@ -346,7 +348,7 @@ namespace Parsers
 
                 _normalizedWriter?.Write(NormalizedRecord.From(
                     cmdTs != DateTime.MinValue ? cmdTs : DateTime.UtcNow,
-                    string.Empty, "BASH",
+                    _hostname, "BASH",
                     "bash", username, string.Empty,
                     display, severity, cmd));
             }
@@ -369,8 +371,6 @@ namespace Parsers
         {
             if (string.IsNullOrWhiteSpace(cmd)) return "Info";
 
-            // Whitelist check first — avoids false positives on common commands
-            // that happen to contain a suspicious substring (e.g. "cat /etc/hosts")
             if (IsWhitelisted(cmd)) return "Info";
 
             var lo = cmd.ToLowerInvariant();
@@ -386,7 +386,6 @@ namespace Parsers
 
         private static bool IsWhitelisted(string cmd)
         {
-            // Only apply whitelist to commands that don't already hit Critical
             var lo = cmd.ToLowerInvariant();
 
             // cat is only safe when not reading shadow/passwd
@@ -420,9 +419,6 @@ namespace Parsers
 
         private static string InferUsername(string filePath)
         {
-            // .../home/alice/.bash_history → alice
-            // .../root/.bash_history       → root
-            // live_response/user_files/bob/bash_history.txt → bob
             var parts = filePath.Replace('\\', '/').Split('/');
 
             for (int i = parts.Length - 1; i >= 1; i--)
@@ -434,7 +430,6 @@ namespace Parsers
                 }
             }
 
-            // Flat dump pattern: root_bash_history.txt
             var fileName = Path.GetFileName(filePath);
             if (fileName.Contains("_bash_history"))
                 return fileName.Replace("_bash_history.txt", "").Replace("_bash_history", "");

@@ -34,6 +34,12 @@ public class ParserConfig
     public bool ParseBodyFile { get; set; } = true;
     public bool ParseJournal { get; set; } = true;
     public bool ParseBashHistory { get; set; } = true;
+    public bool ParseZsh { get; set; } = true;
+    public bool ParseVimInfo { get; set; } = true;
+    public bool ParseDbHistory { get; set; } = true;
+    public bool ParsePythonHistory { get; set; } = true;
+    public bool ParseWgetHsts { get; set; } = true;
+    public bool ParseLessHst { get; set; } = true;
 
     // ── Detection thresholds ─────────────────────────────────────────
     /// <summary>Failed login count before an IP is flagged as brute-force.</summary>

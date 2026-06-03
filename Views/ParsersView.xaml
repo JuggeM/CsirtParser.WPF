@@ -346,7 +346,7 @@
                     <ToolTip Style="{StaticResource ForensicTip}">
                         <StackPanel>
                             <TextBlock Text="Bash history" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                            <TextBlock TextWrapping="Wrap">Parses .bash_history files from root and all user home directories. Detects reverse shells, credential access (/etc/shadow, hashcat, john), droppers (wget/curl to /tmp), SUID manipulation, lateral movement via SSH, and anti-forensics (history -c, HISTFILE=/dev/null, shred). When HISTTIMEFORMAT is set, timestamps are parsed and large time gaps between commands are flagged. Anti-forensics commands are always surfaced regardless of count. Note: history can be incomplete or deliberately cleared absence of findings here is not a clean bill of health.</TextBlock>
+                            <TextBlock TextWrapping="Wrap">Parses .bash_history files from root and all user home directories. Detects reverse shells, credential access (/etc/shadow, hashcat, john), droppers (wget/curl to /tmp), SUID manipulation, lateral movement via SSH, and anti-forensics (history -c, HISTFILE=/dev/null, shred). When HISTTIMEFORMAT is set, timestamps are parsed and large time gaps between commands are flagged.</TextBlock>
                         </StackPanel>
                     </ToolTip>
                 </Border.ToolTip>
@@ -360,6 +360,144 @@
                         <TextBlock Text=".bash_history, all users" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                     </StackPanel>
                     <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseBashHistory}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Zsh history -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Zsh history" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .zsh_history files from root and all user home directories. Supports Zsh extended history format with built-in timestamps and multi-line command continuation. Uses the same suspicious keyword detection as bash history. Increasingly common on modern Linux and macOS systems.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Zsh history" FontWeight="Medium"/>
+                        <TextBlock Text=".zsh_history, all users" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseZsh}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Vim info -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Vim info" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .viminfo files. Detects shell escapes (:!cmd) which execute arbitrary commands from inside Vim and bypass bash_history entirely. Also surfaces sensitive files opened in Vim (/etc/shadow, id_rsa, authorized_keys) and suspicious search terms typed inside the editor. High value  attackers frequently use Vim's shell escape to avoid history logging.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Vim info" FontWeight="Medium"/>
+                        <TextBlock Text=".viminfo, shell escapes, file access" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseVimInfo}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- DB history -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Database history" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .mysql_history, .psql_history, .sqlite_history, and .rediscli_history. Detects credential manipulation (ALTER USER, CREATE USER with passwords), data exfiltration (SELECT INTO OUTFILE, COPY TO), privilege escalation (GRANT ALL), UDF shell execution, and MySQL shell escapes (\! cmd). High value on database servers.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Database history" FontWeight="Medium"/>
+                        <TextBlock Text="MySQL, PostgreSQL, SQLite, Redis" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseDbHistory}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Python history -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Python history" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .python_history from the Python interactive REPL. Detects live exploit development: os.system/subprocess calls, socket-based reverse shells, offensive imports (impacket, scapy, pwntools), exec/eval abuse, and credential file access. Commands run in the Python REPL never appear in bash_history making this a blind spot often missed in investigations.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Python history" FontWeight="Medium"/>
+                        <TextBlock Text=".python_history, REPL commands" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParsePythonHistory}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Wget HSTS -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Wget HSTS" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .wget-hsts which records every HTTPS host wget connected to with timestamps. Persists even after downloaded files are deleted  making it a reliable C2 and dropper download record. Flags raw IPs, throwaway TLDs (.xyz, .tk, .top), Tor (.onion), and reverse tunnel services (ngrok, DDNS). Trusted CDN and package manager domains are suppressed.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Wget HSTS" FontWeight="Medium"/>
+                        <TextBlock Text=".wget-hsts, download history" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseWgetHsts}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Less history -->
+            <Border Style="{StaticResource ParserCard}" Margin="0,0,6,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="Less history" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Parses .lesshst from the less pager. Captures search terms typed inside less (reveals what the attacker was looking for in files they read) and shell escapes run via ! (commands that bypass bash_history entirely). Attackers who clear bash_history almost never clear .lesshst making it a reliable anti-forensics gap.</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Less history" FontWeight="Medium"/>
+                        <TextBlock Text=".lesshst, search + shell escapes" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseLessHst}" VerticalAlignment="Center" Margin="0"/>
                 </Grid>
             </Border>
 
