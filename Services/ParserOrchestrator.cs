@@ -252,6 +252,18 @@ public class ParserOrchestrator
                 fileCounts["DOCKER"] = 1;
                 perFileTimestamps["DOCKER"] = new Dictionary<string, (DateTime, DateTime)>
                     { { "docker", (first, last) } };
+
+                // Docker findings previously never reached QuickWins.txt — this
+                // method only returned them (ProcessLogAndReturnFindings doesn't
+                // write). They aren't per-file like the other log types, so they
+                // go in under a single "containers" group.
+                if (findings.Count > 0)
+                {
+                    var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
+                    QuickWinsSectionWriter.WriteSection(
+                        quickWinsFile, "DOCKER", "No suspicious container configuration detected.",
+                        new List<(string FileName, List<string> Findings)> { ("containers", findings) });
+                }
             }
             else
             {
@@ -338,24 +350,9 @@ public class ParserOrchestrator
                 if (perFileFindings.Count > 0)
                 {
                     var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-                    using var w = new StreamWriter(quickWinsFile, append: true);
-                    w.WriteLine();
-                    w.WriteLine("########## [JOURNAL] Suspicious Findings ##########");
-                    w.WriteLine();
-
-                    foreach (var (fileName, fileFindings) in perFileFindings)
-                    {
-                        // Strip everything before \[root]\ for a cleaner path
-                        var displayPath = fileName;
-                        var rootIdx = fileName.IndexOf(@"\[root]\", StringComparison.OrdinalIgnoreCase);
-                        if (rootIdx >= 0) displayPath = fileName.Substring(rootIdx);
-                        w.WriteLine($"  --- {displayPath} ---");
-                        foreach (var finding in fileFindings)
-                            w.WriteLine($"  >> {finding}");
-                        w.WriteLine();
-                    }
-
-                    w.WriteLine("########## End of [JOURNAL] Suspicious Findings ##########");
+                    QuickWinsSectionWriter.WriteSection(
+                        quickWinsFile, "JOURNAL", "No suspicious activity detected.",
+                        perFileFindings);
                 }
 
                 suspiciousLogs[logKey] = allFindings;
@@ -420,20 +417,9 @@ public class ParserOrchestrator
                 if (perFileFindings.Count > 0)
                 {
                     var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-                    using var w = new StreamWriter(quickWinsFile, append: true);
-                    w.WriteLine();
-                    w.WriteLine("########## [BASH] Suspicious Findings ##########");
-                    w.WriteLine();
-
-                    foreach (var (file, fileFindings) in perFileFindings)
-                    {
-                        w.WriteLine($"  --- {Path.GetFileName(file)} ---");
-                        foreach (var finding in fileFindings)
-                            w.WriteLine($"  >> {finding}");
-                        w.WriteLine();
-                    }
-
-                    w.WriteLine("########## End of [BASH] Suspicious Findings ##########");
+                    QuickWinsSectionWriter.WriteSection(
+                        quickWinsFile, "BASH", "No suspicious activity detected.",
+                        perFileFindings.Select(pf => (FileName: pf.File, pf.Findings)).ToList());
                 }
 
                 suspiciousLogs[logKey] = allFindings;
@@ -620,32 +606,9 @@ public class ParserOrchestrator
 
         // Write section
         var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-        using var w = new StreamWriter(quickWinsFile, append: true);
-        w.WriteLine();
-        w.WriteLine("########## [CRONTAB] Suspicious Job Definitions ##########");
-        w.WriteLine();
-
-        if (perFileFindings.Count == 0)
-        {
-            w.WriteLine("  No suspicious crontab entries found.");
-        }
-        else
-        {
-            foreach (var (filePath, fileFindings) in perFileFindings)
-            {
-                var displayPath = filePath;
-                var rootIdx = filePath.IndexOf(@"\[root]",
-                    StringComparison.OrdinalIgnoreCase);
-                if (rootIdx >= 0) displayPath = filePath.Substring(rootIdx);
-
-                w.WriteLine($"  --- {displayPath} ---");
-                foreach (var finding in fileFindings)
-                    w.WriteLine($"  >> {finding}");
-                w.WriteLine();
-            }
-        }
-
-        w.WriteLine("########## End of [CRONTAB] Suspicious Job Definitions ##########");
+        QuickWinsSectionWriter.WriteSection(
+            quickWinsFile, "CRONTAB", "No suspicious crontab entries found.",
+            perFileFindings.Select(pf => (FileName: pf.FilePath, pf.Findings)).ToList());
 
         suspiciousLogs[logKey] = allFindings;
         patternCounts[logKey] = combinedPatterns;
@@ -766,24 +729,9 @@ public class ParserOrchestrator
         if (perFileFindings.Count > 0)
         {
             var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-            using var w = new StreamWriter(quickWinsFile, append: true);
-            w.WriteLine();
-            w.WriteLine($"########## [{logKey}] Suspicious Findings ##########");
-            w.WriteLine();
-
-            foreach (var (lf, fileFindings) in perFileFindings)
-            {
-                var displayPath = lf;
-                var rootIdx = lf.IndexOf(@"\[root]", StringComparison.OrdinalIgnoreCase);
-                if (rootIdx >= 0) displayPath = lf.Substring(rootIdx);
-
-                w.WriteLine($"  --- {displayPath} ---");
-                foreach (var finding in fileFindings)
-                    w.WriteLine($"  >> {finding}");
-                w.WriteLine();
-            }
-
-            w.WriteLine($"########## End of [{logKey}] Suspicious Findings ##########");
+            QuickWinsSectionWriter.WriteSection(
+                quickWinsFile, logKey, "No suspicious activity detected.",
+                perFileFindings.Select(pf => (FileName: pf.LogFile, pf.Findings)).ToList());
         }
 
         suspiciousLogs[logKey] = allFindings;
@@ -883,25 +831,9 @@ public class ParserOrchestrator
             if (perFileFindings.Count > 0)
             {
                 var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-                using var w = new StreamWriter(quickWinsFile, append: true);
-                w.WriteLine();
-                w.WriteLine($"########## [{logKey}] Suspicious Findings ##########");
-                w.WriteLine();
-
-                foreach (var (filePath, fileFindings) in perFileFindings)
-                {
-                    // Strip everything before \[root]\ for a cleaner display path
-                    var displayPath = filePath;
-                    var rootIdx = filePath.IndexOf(@"\[root]", StringComparison.OrdinalIgnoreCase);
-                    if (rootIdx >= 0) displayPath = filePath.Substring(rootIdx);
-
-                    w.WriteLine($"  --- {displayPath} ---");
-                    foreach (var finding in fileFindings)
-                        w.WriteLine($"  >> {finding}");
-                    w.WriteLine();
-                }
-
-                w.WriteLine($"########## End of [{logKey}] Suspicious Findings ##########");
+                QuickWinsSectionWriter.WriteSection(
+                    quickWinsFile, logKey, "No suspicious activity detected.",
+                    perFileFindings.Select(pf => (FileName: pf.FilePath, pf.Findings)).ToList());
             }
 
             suspiciousLogs[logKey] = allFindings;
@@ -930,21 +862,19 @@ public class ParserOrchestrator
             w.WriteLine();
             foreach (var line in suspiciousLines)
                 w.WriteLine($"  {line}");
-            w.WriteLine();
-            w.WriteLine("########## End of [AUTH] Suspicious Sessions ##########");
-            w.WriteLine();
         }
 
-        // 2. Sessions CSV — grouped by User+IP+Type, CRON/systemd noise excluded
+        // 2. Sessions CSV — grouped by User+IP+Daemon+Type. Lists every
+        // session type (including CronJob/SystemdSession/PamGeneric) so the
+        // "Total Sessions" count on the QuickWins stats line and the row
+        // count here actually match — this used to filter those three types
+        // out, so the CSV never matched the "full detail" it promised.
         var csvSessionPath = Path.Combine(outputDir, "Sessions_AUTH.csv");
         try
         {
             var allSessions = sessionTracker.GetAllSessions();
 
             var grouped = allSessions
-                .Where(s => s.Type.ToString() != "CronJob"
-                         && s.Type.ToString() != "SystemdSession"
-                         && s.Type.ToString() != "PamGeneric")
                 .GroupBy(s => new { s.Username, s.SourceIP, s.Daemon, Type = s.Type.ToString() })
                 .Select(g => (
                     g.Key.Username,
@@ -1164,40 +1094,14 @@ public class ParserOrchestrator
         // Write ONE combined section — always write if any files were parsed,
         // even if no attack findings, so the RTF always has a WEB section.
         var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-        using var w = new StreamWriter(quickWinsFile, append: true);
-        w.WriteLine();
-        w.WriteLine("########## [WEB] Suspicious Findings ##########");
-        w.WriteLine();
+        var webSections = perFileFindings
+            .Select(pf => (FileName: pf.LogFile, pf.Findings))
+            .ToList();
+        if (bruteList.Count > 0)
+            webSections.Add(("Brute-force (all files)", bruteList));
 
-        if (perFileFindings.Count == 0 && bruteList.Count == 0)
-        {
-            w.WriteLine("  No suspicious web requests detected.");
-            w.WriteLine();
-        }
-        else
-        {
-            foreach (var (lf, fileFindings) in perFileFindings)
-            {
-                var displayPath = lf;
-                var rootIdx = lf.IndexOf(@"\[root]", StringComparison.OrdinalIgnoreCase);
-                if (rootIdx >= 0) displayPath = lf.Substring(rootIdx);
-                w.WriteLine($"  --- {displayPath} ---");
-
-                foreach (var finding in fileFindings)
-                    w.WriteLine($"  >> {finding}");
-                w.WriteLine();
-            }
-
-            if (bruteList.Count > 0)
-            {
-                w.WriteLine("  --- Brute-force detections (all files combined) ---");
-                foreach (var bf in bruteList)
-                    w.WriteLine($"  >> {bf}");
-                w.WriteLine();
-            }
-        }
-
-        w.WriteLine("########## End of [WEB] Suspicious Findings ##########");
+        QuickWinsSectionWriter.WriteSection(
+            quickWinsFile, "WEB", "No suspicious web requests detected.", webSections);
 
         suspiciousLogs[logKey] = allFindings;
         patternCounts[logKey] = combinedPatterns;
@@ -1441,18 +1345,9 @@ public class ParserOrchestrator
         if (perFileFindings.Count > 0)
         {
             var quickWinsFile = Path.Combine(outputDir, "QuickWins.txt");
-            using var w = new StreamWriter(quickWinsFile, append: true);
-            w.WriteLine();
-            w.WriteLine($"########## [{logKey}] Suspicious Findings ##########");
-            w.WriteLine();
-            foreach (var (file, fileFindings) in perFileFindings)
-            {
-                w.WriteLine($"  --- {Path.GetFileName(file)} ---");
-                foreach (var finding in fileFindings)
-                    w.WriteLine($"  >> {finding}");
-                w.WriteLine();
-            }
-            w.WriteLine($"########## End of [{logKey}] Suspicious Findings ##########");
+            QuickWinsSectionWriter.WriteSection(
+                quickWinsFile, logKey, "No suspicious activity detected.",
+                perFileFindings.Select(pf => (FileName: pf.File, pf.Findings)).ToList());
         }
 
         suspiciousLogs[logKey] = allFindings;
