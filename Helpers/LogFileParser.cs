@@ -10,6 +10,21 @@ namespace Helpers
         protected int? InferredYear = null;
         protected TimeSpan? TimeOffset = null;
 
+        // Host's fixed UTC offset, resolved once per collection via
+        // HostTimezoneResolver and pushed down by the orchestrator. Null means
+        // "no timezone artifact found" — timestamps are left uncorrected rather
+        // than silently assumed UTC.
+        private TimeSpan? _hostUtcOffset;
+
+        /// <summary>
+        /// Sets the host's UTC offset for this parser instance. Called once by
+        /// the orchestrator per collection, before any file is parsed.
+        /// </summary>
+        public void SetHostUtcOffset(TimeSpan? offset)
+        {
+            _hostUtcOffset = offset;
+        }
+
         // ── Date-range filter ────────────────────────────────────────────────
         private DateTime? _filterFrom;
         private DateTime? _filterTo;
@@ -247,13 +262,22 @@ namespace Helpers
             //                     MaxValue.AddYears(-7973) → 2026-12-31
             if (raw == DateTime.MinValue || raw == DateTime.MaxValue) return raw;
 
+            // Idempotency guard: a timestamp already corrected and stamped as
+            // Utc must not be corrected a second time. Raw timestamps coming
+            // out of the individual parsers' Regex/TryParseExact calls are
+            // always DateTimeKind.Unspecified, so this only trips if a caller
+            // accidentally re-runs CorrectTimestamp on an already-fixed value.
+            if (raw.Kind == DateTimeKind.Utc) return raw;
+
             if (InferredYear.HasValue)
                 raw = raw.AddYears(InferredYear.Value - raw.Year);
 
             if (TimeOffset.HasValue)
-                raw = raw + TimeOffset.Value;
+                // TimeOffset is the host's UTC offset (host-local = UTC + offset),
+                // so converting host-local → UTC means subtracting it.
+                raw = raw - TimeOffset.Value;
 
-            return raw;
+            return DateTime.SpecifyKind(raw, DateTimeKind.Utc);
         }
 
         protected int? InferYearFromLogFile(string logFilePath)
@@ -269,10 +293,12 @@ namespace Helpers
             }
         }
 
-        protected TimeSpan? InferTimeOffset(string logFilePath)
+        protected virtual TimeSpan? InferTimeOffset(string logFilePath)
         {
-            // Optional override in subclasses or for later implementation
-            return null;
+            // Resolved once per collection via HostTimezoneResolver and pushed
+            // in through SetHostUtcOffset(). Subclasses can still override this
+            // if a log format ever carries its own per-line offset instead.
+            return _hostUtcOffset;
         }
     }
 }

@@ -108,10 +108,18 @@ namespace Helpers
                     $"{monthStr} {dayStr} {timeStr}",
                     format,
                     CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeLocal,
+                    DateTimeStyles.None,
                     out DateTime dt))
                 {
-                    return new DateTime(year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, DateTimeKind.Utc);
+                    // BSD-style syslog timestamps carry no timezone of their own —
+                    // this is the collected host's wall-clock time, not UTC. Marking
+                    // it DateTimeKind.Utc here (as before) was the confirmed bug:
+                    // it faked a UTC label without ever subtracting the host's real
+                    // offset. Return Unspecified so LogFileParser.CorrectTimestamp()
+                    // can apply the actual year + host-UTC-offset correction.
+                    return DateTime.SpecifyKind(
+                        new DateTime(year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second),
+                        DateTimeKind.Unspecified);
                 }
             }
 

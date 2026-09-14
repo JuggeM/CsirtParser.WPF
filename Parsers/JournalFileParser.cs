@@ -1,4 +1,4 @@
-﻿// JournalFileParser.cs
+// JournalFileParser.cs
 // Pure C# binary parser for systemd journal files (.journal)
 // Handles both regular and compact formats (systemd 246+)
 // Format reference: https://systemd.io/JOURNAL_FILE_FORMAT/
@@ -385,14 +385,12 @@ namespace Parsers
                 DateTime Last)
             ParseFile(string filePath)
         {
-            var findings = new List<string>();
-            var patterns = new Dictionary<string, int>();
-            DateTime first = DateTime.MaxValue;
-            DateTime last = DateTime.MinValue;
-
-            ParseLog(filePath, findings, patterns,
-                     ref first, ref last,
-                     interestingIPs: null, outputDir: null, suppressFooter: true);
+            // Routed through ProcessLogAndReturnFindings (not ParseLog directly)
+            // so InferredYear/TimeOffset get set and CorrectTimestamp actually
+            // runs on this live code path — previously this bypassed both.
+            var (findings, patterns, first, last) =
+                ProcessLogAndReturnFindings(filePath, outputDir: null,
+                    interestingIPs: null, suppressFooter: true);
 
             return (findings, patterns, first, last);
         }

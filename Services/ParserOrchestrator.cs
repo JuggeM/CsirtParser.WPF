@@ -26,6 +26,12 @@ public class ParserOrchestrator
     private readonly ParserConfig _config;
     private readonly Action<string> _log;   // posts a message to the UI log
 
+    // Host UTC offset for the collection currently being processed, resolved
+    // once at the top of ProcessLogs() and pushed onto every LogFileParser
+    // instance created for that collection. RunAll() processes collections
+    // sequentially, so a single field is safe here.
+    private TimeSpan? _currentHostUtcOffset;
+
     public ParserOrchestrator(ParserConfig config, Action<string> log)
     {
         _config = config;
@@ -150,6 +156,16 @@ public class ParserOrchestrator
 
         string hostname = ExtractHostnameFromCollection(collectionName);
 
+        // Resolved once per collection from UAC's timedatectl/date artifacts.
+        // Null means no timezone artifact was found — timestamps are left
+        // uncorrected rather than silently assumed UTC.
+        _currentHostUtcOffset = HostTimezoneResolver.Resolve(rootPath);
+        if (_currentHostUtcOffset.HasValue)
+            _log($"[{collectionName}] Host UTC offset resolved: {_currentHostUtcOffset.Value:hh\\:mm} " +
+                 $"(applying to all log timestamps)");
+        else
+            _log($"[{collectionName}] No timezone artifact found — timestamps left uncorrected");
+
         QuickWinsHeader.EnsureHeader(outputDir, DateTime.UtcNow, null, null);
 
         var suspiciousLogs = new Dictionary<string, List<string>>();
@@ -167,6 +183,7 @@ public class ParserOrchestrator
             TryAttach(parser, sessionTracker);
             TryAttach(parser, csv);
             TryAttach(parser, hostname);
+            parser.SetHostUtcOffset(_currentHostUtcOffset);
             ParseLogFiles(parser, rootPath, baseName, outputDir,
                 suspiciousLogs, patternCounts, firstLastSeen,
                 ipLogs, fileCounts, perFileTimestamps);
@@ -205,6 +222,7 @@ public class ParserOrchestrator
             var webBfd = new WebBruteForceDetector();  // shared across all web files
             TryAttach(webParser, webCsv);
             TryAttach(webParser, hostname);
+            webParser.SetHostUtcOffset(_currentHostUtcOffset);
             webParser.AttachBruteForceDetector(webBfd);
             ParseWebLogs(webParser, webBfd, rootPath, outputDir,
                 suspiciousLogs, patternCounts, firstLastSeen,
@@ -224,6 +242,7 @@ public class ParserOrchestrator
                 var dockerParser = new DockerParserCoordinator(dockerPath);
                 TryAttach(dockerParser, dockerCsv);
                 TryAttach(dockerParser, hostname);
+                dockerParser.SetHostUtcOffset(_currentHostUtcOffset);
 
                 var (findings, patterns, first, last) = dockerParser.ProcessLogAndWriteQuickWins();
                 suspiciousLogs["DOCKER"] = findings;
@@ -288,6 +307,7 @@ public class ParserOrchestrator
                 var journalParser = new JournalFileParser();
                 TryAttach(journalParser, csv);
                 TryAttach(journalParser, hostname);
+                journalParser.SetHostUtcOffset(_currentHostUtcOffset);
 
                 perFileTimestamps[logKey] = new Dictionary<string, (DateTime, DateTime)>();
 
@@ -571,6 +591,7 @@ public class ParserOrchestrator
         using var csv = new NormalizedCsvWriter(csvPath, append: false);
         var scanner = new CrontabScanner();
         TryAttach(scanner, csv);
+        scanner.SetHostUtcOffset(_currentHostUtcOffset);
 
         var allFindings = new List<string>();
         var perFileFindings = new List<(string FilePath, List<string> Findings)>();
@@ -664,6 +685,8 @@ public class ParserOrchestrator
         perFileTimestamps[logKey] = new Dictionary<string, (DateTime, DateTime)>();
 
         if (logFiles.Count == 0) return;
+
+        parser.SetHostUtcOffset(_currentHostUtcOffset);
 
         // Attach CSV writer if supported
         var csvPath = Path.Combine(outputDir, $"Normalized_{logKey}.csv");
@@ -809,6 +832,7 @@ public class ParserOrchestrator
             var parser = new AuthSecureLogParser();
             TryAttach(parser, sessionTracker);
             TryAttach(parser, csv);
+            parser.SetHostUtcOffset(_currentHostUtcOffset);
 
             var allFindings = new List<string>();
             var perFileFindings = new List<(string FilePath, List<string> Findings)>();

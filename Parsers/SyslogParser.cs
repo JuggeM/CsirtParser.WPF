@@ -167,16 +167,21 @@ namespace Parsers
                 try { year = new FileInfo(logFilePath).LastWriteTime.Year; } catch { }
                 string tsStr = $"{year} {cls.Groups["ts"].Value}";
                 DateTime ts = DateTime.MinValue;
+                // AssumeLocal + ToUniversalTime() was the confirmed bug: it converts
+                // using the ANALYST WORKSTATION's timezone, not the collected host's.
+                // Parse as Unspecified (host-local wall-clock time) instead, so
+                // LogFileParser.CorrectTimestamp() applies the real host UTC offset
+                // resolved from the UAC timedatectl/date artifacts.
                 if (DateTime.TryParseExact(tsStr, "yyyy MMM d HH:mm:ss",
                         CultureInfo.InvariantCulture,
-                        DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                        DateTimeStyles.AllowWhiteSpaces,
                         out var dt1))
-                    ts = dt1.ToUniversalTime();
+                    ts = DateTime.SpecifyKind(dt1, DateTimeKind.Unspecified);
                 else if (DateTime.TryParseExact(tsStr, "yyyy MMM dd HH:mm:ss",
                         CultureInfo.InvariantCulture,
-                        DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                        DateTimeStyles.AllowWhiteSpaces,
                         out var dt2))
-                    ts = dt2.ToUniversalTime();
+                    ts = DateTime.SpecifyKind(dt2, DateTimeKind.Unspecified);
                 return (ts,
                     cls.Groups["host"].Value,
                     cls.Groups["daemon"].Value,
@@ -319,14 +324,12 @@ namespace Parsers
                 DateTime Last)
             ParseFile(string filePath)
         {
-            var findings = new List<string>();
-            var patterns = new Dictionary<string, int>();
-            DateTime first = DateTime.MaxValue;
-            DateTime last = DateTime.MinValue;
-
-            ParseLog(filePath, findings, patterns,
-                     ref first, ref last,
-                     interestingIPs: null, outputDir: null, suppressFooter: true);
+            // Routed through ProcessLogAndReturnFindings (not ParseLog directly)
+            // so InferredYear/TimeOffset get set and CorrectTimestamp actually
+            // runs on this live code path — previously this bypassed both.
+            var (findings, patterns, first, last) =
+                ProcessLogAndReturnFindings(filePath, outputDir: null,
+                    interestingIPs: null, suppressFooter: true);
 
             return (findings, patterns, first, last);
         }

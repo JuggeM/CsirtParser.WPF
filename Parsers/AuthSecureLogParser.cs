@@ -374,7 +374,10 @@ namespace Parsers
                 return DateTime.MinValue;
 
             dt = dt.AddYears(DateTime.Now.Year - dt.Year);
-            return DateTime.SpecifyKind(dt, DateTimeKind.Local);
+            // Unspecified, not Local: this is the collected host's clock, not
+            // the analyst workstation's. CorrectTimestamp() applies the real
+            // per-collection year/offset correction downstream.
+            return DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
         }
         // ── Public parse-only entry point (no QuickWins writing) ──────────
         // Called by the orchestrator so it can write ONE combined section
@@ -385,14 +388,12 @@ namespace Parsers
                 DateTime Last)
             ParseFile(string filePath)
         {
-            var findings = new List<string>();
-            var patterns = new Dictionary<string, int>();
-            DateTime first = DateTime.MaxValue;
-            DateTime last = DateTime.MinValue;
-
-            ParseLog(filePath, findings, patterns,
-                     ref first, ref last,
-                     interestingIPs: null, outputDir: null, suppressFooter: true);
+            // Routed through ProcessLogAndReturnFindings (not ParseLog directly)
+            // so InferredYear/TimeOffset get set and CorrectTimestamp actually
+            // runs on this live code path — previously this bypassed both.
+            var (findings, patterns, first, last) =
+                ProcessLogAndReturnFindings(filePath, outputDir: null,
+                    interestingIPs: null, suppressFooter: true);
 
             return (findings, patterns, first, last);
         }
