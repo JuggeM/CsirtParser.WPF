@@ -296,13 +296,10 @@ public class ParserOrchestrator
             }
         }
 
-        // systemd user journal files (user-1000.journal, user-1001.journal, …)
+        // systemd journal files: system + user, active, archived (@) and dirty (~)
         if (_config.ParseJournal)
         {
-            var journalFiles = Directory.EnumerateFiles(
-                    rootPath, "user-*.journal", SearchOption.AllDirectories)
-                .OrderBy(f => f)
-                .ToList();
+            var journalFiles = DiscoverJournalFiles(rootPath);
 
             if (journalFiles.Count > 0)
             {
@@ -331,7 +328,9 @@ public class ParserOrchestrator
                     // so we can write ONE combined section below.
                     var (findings, patterns, first, last) = journalParser.ParseFile(jFile);
 
-                    perFileTimestamps[logKey][Path.GetFileName(jFile)] = (first, last);
+                    // Relative path as key: system.journal can exist in both
+                    // /var/log/journal/<id>/ and /run/log/journal/<id>/
+                    perFileTimestamps[logKey][Path.GetRelativePath(rootPath, jFile)] = (first, last);
 
                     if (findings.Count > 0)
                         perFileFindings.Add((jFile, findings));
@@ -363,7 +362,7 @@ public class ParserOrchestrator
             }
             else
             {
-                _log($"[{collectionName}] Journal: no user-*.journal files found — skipping.");
+                _log($"[{collectionName}] Journal: no *.journal files found — skipping.");
             }
         }
 
@@ -874,6 +873,17 @@ public class ParserOrchestrator
         {
             var allSessions = sessionTracker.GetAllSessions();
 
+            // 2b. Sessions_Full.csv — every individual session, unfiltered
+            //     (includes CronJob/SystemdSession/PamGeneric that Sessions_AUTH.csv excludes)
+            try
+            {
+                new SessionsCsvWriter(outputDir).WriteAll(allSessions);
+            }
+            catch (Exception ex)
+            {
+                _log?.Invoke($"[AUTH] Failed to write Sessions_Full.csv: {ex.Message}");
+            }
+
             var grouped = allSessions
                 .GroupBy(s => new { s.Username, s.SourceIP, s.Daemon, Type = s.Type.ToString() })
                 .Select(g => (
@@ -1367,6 +1377,25 @@ public class ParserOrchestrator
     {
         var m = target.GetType().GetMethod("AttachHostname", new[] { typeof(string) });
         m?.Invoke(target, new object[] { hostname });
+    }
+
+    /// <summary>
+    /// Finds all systemd journal files under rootPath:
+    ///   system.journal, system@&lt;seq&gt;.journal       (system, active/archived)
+    ///   user-&lt;uid&gt;.journal, user-&lt;uid&gt;@&lt;seq&gt;.journal (per user)
+    ///   *.journal~                                  (dirty / unclean shutdown)
+    /// Covers both /var/log/journal (persistent) and /run/log/journal (volatile).
+    /// </summary>
+    internal static List<string> DiscoverJournalFiles(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+            return new List<string>();
+
+        return Directory.EnumerateFiles(rootPath, "*.journal*", SearchOption.AllDirectories)
+            .Where(f => f.EndsWith(".journal", StringComparison.OrdinalIgnoreCase)
+                     || f.EndsWith(".journal~", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToList();
     }
 
     /// <summary>
