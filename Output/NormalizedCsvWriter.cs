@@ -56,6 +56,52 @@ namespace Output
         private bool _headerWritten;
         private bool _disposed;
 
+        /// <summary>
+        /// Collection-level hostname, written as a lower-case short name.
+        /// Every row gets this value EXCEPT syslog-format log types (see
+        /// SyslogLogTypes), where the host field on the log line itself is kept
+        /// if it is valid — so a central log server's rows keep their real
+        /// origin. On a normal host the two are identical after normalization.
+        /// </summary>
+        public string Hostname
+        {
+            get => _hostname;
+            set => _hostname = NormalizeHost(value);
+        }
+        private string _hostname = string.Empty;
+
+        /// <summary>Log types whose lines carry their own syslog host field.</summary>
+        public static readonly HashSet<string> SyslogLogTypes =
+            new(StringComparer.OrdinalIgnoreCase) { "SYSLOG", "MESSAGES", "AUTH", "SECURE" };
+
+        private string ResolveRowHost(NormalizedRecord r)
+        {
+            if (SyslogLogTypes.Contains(r.LogType ?? string.Empty))
+            {
+                var lineHost = NormalizeHost(r.Hostname);
+                if (IsUsableHost(lineHost)) return lineHost;
+            }
+            return _hostname.Length > 0 ? _hostname : NormalizeHost(r.Hostname);
+        }
+
+        /// <summary>
+        /// Trim, drop trailing dot, lower-case, and reduce FQDN to short name.
+        /// IP addresses are left intact (a relayed syslog host can be an IP).
+        /// </summary>
+        internal static string NormalizeHost(string h)
+        {
+            if (string.IsNullOrWhiteSpace(h)) return string.Empty;
+            h = h.Trim().TrimEnd('.').ToLowerInvariant();
+            if (System.Net.IPAddress.TryParse(h, out _)) return h;
+            int dot = h.IndexOf('.');
+            return dot > 0 ? h.Substring(0, dot) : h;
+        }
+
+        private static bool IsUsableHost(string h)
+            => h.Length > 0
+               && h != "localhost" && h != "(none)" && h != "-"
+               && System.Text.RegularExpressions.Regex.IsMatch(h, @"^[a-z0-9][a-z0-9_\-.:]*$");
+
         private static readonly string[] Header =
         {
             "Timestamp","Hostname","LogType","Daemon","User","IP","Message","Severity","Raw"
@@ -107,7 +153,7 @@ namespace Output
             }
         }
 
-        private static string Serialize(NormalizedRecord r)
+        private string Serialize(NormalizedRecord r)
         {
             string ts = r.Timestamp.Kind == DateTimeKind.Unspecified
                 ? DateTime.SpecifyKind(r.Timestamp, DateTimeKind.Utc)
@@ -117,7 +163,7 @@ namespace Output
             return ToCsv(new[]
             {
                 ts,
-                r.Hostname ?? string.Empty,
+                ResolveRowHost(r),
                 r.LogType  ?? string.Empty,
                 r.Daemon   ?? string.Empty,
                 r.User     ?? string.Empty,

@@ -31,6 +31,7 @@ public class ParserOrchestrator
     // instance created for that collection. RunAll() processes collections
     // sequentially, so a single field is safe here.
     private TimeSpan? _currentHostUtcOffset;
+    private string _currentHostname = string.Empty;
 
     public ParserOrchestrator(ParserConfig config, Action<string> log)
     {
@@ -154,7 +155,17 @@ public class ParserOrchestrator
     {
         _log($"[{collectionName}] Starting log parsing…");
 
-        string hostname = ExtractHostnameFromCollection(collectionName);
+        // Prefer the host's own view of its name (live_response / etc/hostname);
+        // the collection folder name is only a fallback.
+        string hostname = HostnameResolver.Resolve(rootPath);
+        if (!string.IsNullOrEmpty(hostname))
+            _log($"[{collectionName}] Hostname resolved from UAC artifacts: {hostname}");
+        else
+        {
+            hostname = ExtractHostnameFromCollection(collectionName);
+            _log($"[{collectionName}] No hostname artifact found — using collection name: {hostname}");
+        }
+        _currentHostname = hostname;
 
         // Resolved once per collection from UAC's timedatectl/date artifacts.
         // Null means no timezone artifact was found — timestamps are left
@@ -179,7 +190,7 @@ public class ParserOrchestrator
         void Parse(string baseName, LogFileParser parser, string label)
         {
             var csvPath = Path.Combine(outputDir, $"Normalized_{label}.csv");
-            using var csv = new NormalizedCsvWriter(csvPath, append: false);
+            using var csv = CreateCsv(csvPath, append: false);
             TryAttach(parser, sessionTracker);
             TryAttach(parser, csv);
             TryAttach(parser, hostname);
@@ -216,7 +227,7 @@ public class ParserOrchestrator
 
         if (_config.ParseWebLogs)
         {
-            using var webCsv = new NormalizedCsvWriter(
+            using var webCsv = CreateCsv(
                 Path.Combine(outputDir, "Normalized_WEB.csv"), append: false);
             var webParser = new WebLogParser();
             var webBfd = new WebBruteForceDetector();  // shared across all web files
@@ -237,7 +248,7 @@ public class ParserOrchestrator
             if (!string.IsNullOrEmpty(dockerPath) && Directory.Exists(dockerPath))
             {
                 _log($"[{collectionName}] Parsing Docker containers…");
-                using var dockerCsv = new NormalizedCsvWriter(
+                using var dockerCsv = CreateCsv(
                     Path.Combine(outputDir, "Normalized_DOCKER.csv"), append: false);
                 var dockerParser = new DockerParserCoordinator(dockerPath);
                 TryAttach(dockerParser, dockerCsv);
@@ -312,7 +323,7 @@ public class ParserOrchestrator
                 DateTime jFirst = DateTime.MaxValue, jLast = DateTime.MinValue;
 
                 var csvPath = Path.Combine(outputDir, "Normalized_JOURNAL.csv");
-                using var csv = new NormalizedCsvWriter(csvPath, append: false);
+                using var csv = CreateCsv(csvPath, append: false);
                 var journalParser = new JournalFileParser();
                 TryAttach(journalParser, csv);
                 TryAttach(journalParser, hostname);
@@ -383,7 +394,7 @@ public class ParserOrchestrator
                 var combinedPatterns = new Dictionary<string, int>();
                 DateTime bashFirst = DateTime.MaxValue, bashLast = DateTime.MinValue;
 
-                using var bashCsv = new NormalizedCsvWriter(
+                using var bashCsv = CreateCsv(
                     Path.Combine(outputDir, "Normalized_BASH.csv"), append: false);
 
                 var bashParser = new Parsers.BashHistoryParser();
@@ -436,7 +447,7 @@ public class ParserOrchestrator
         // ── Zsh history ──────────────────────────────────────────────
         if (_config.ParseZsh)
         {
-            using var zshCsv = new NormalizedCsvWriter(Path.Combine(outputDir, "Normalized_ZSH.csv"), append: false);
+            using var zshCsv = CreateCsv(Path.Combine(outputDir, "Normalized_ZSH.csv"), append: false);
             var zshParser = new Parsers.ZshHistoryParser();
             zshParser.AttachNormalizedWriter(zshCsv);
             zshParser.AttachHostname(hostname);
@@ -449,7 +460,7 @@ public class ParserOrchestrator
         // ── VimInfo ───────────────────────────────────────────────────
         if (_config.ParseVimInfo)
         {
-            using var vimCsv = new NormalizedCsvWriter(Path.Combine(outputDir, "Normalized_VIMINFO.csv"), append: false);
+            using var vimCsv = CreateCsv(Path.Combine(outputDir, "Normalized_VIMINFO.csv"), append: false);
             var vimParser = new Parsers.VimInfoParser();
             vimParser.AttachNormalizedWriter(vimCsv);
             vimParser.AttachHostname(hostname);
@@ -462,7 +473,7 @@ public class ParserOrchestrator
         // ── Database history ──────────────────────────────────────────
         if (_config.ParseDbHistory)
         {
-            using var dbCsv = new NormalizedCsvWriter(Path.Combine(outputDir, "Normalized_DBHISTORY.csv"), append: false);
+            using var dbCsv = CreateCsv(Path.Combine(outputDir, "Normalized_DBHISTORY.csv"), append: false);
             var dbParser = new Parsers.DbHistoryParser();
             dbParser.AttachNormalizedWriter(dbCsv);
             dbParser.AttachHostname(hostname);
@@ -475,7 +486,7 @@ public class ParserOrchestrator
         // ── Python history ────────────────────────────────────────────
         if (_config.ParsePythonHistory)
         {
-            using var pyCsv = new NormalizedCsvWriter(Path.Combine(outputDir, "Normalized_PYHISTORY.csv"), append: false);
+            using var pyCsv = CreateCsv(Path.Combine(outputDir, "Normalized_PYHISTORY.csv"), append: false);
             var pyParser = new Parsers.PythonHistoryParser();
             pyParser.AttachNormalizedWriter(pyCsv);
             pyParser.AttachHostname(hostname);
@@ -488,7 +499,7 @@ public class ParserOrchestrator
         // ── Wget HSTS ─────────────────────────────────────────────────
         if (_config.ParseWgetHsts)
         {
-            using var wgetCsv = new NormalizedCsvWriter(Path.Combine(outputDir, "Normalized_WGETHSTS.csv"), append: false);
+            using var wgetCsv = CreateCsv(Path.Combine(outputDir, "Normalized_WGETHSTS.csv"), append: false);
             var wgetParser = new Parsers.WgetHstsParser();
             wgetParser.AttachNormalizedWriter(wgetCsv);
             wgetParser.AttachHostname(hostname);
@@ -501,7 +512,7 @@ public class ParserOrchestrator
         // ── Less history ──────────────────────────────────────────────
         if (_config.ParseLessHst)
         {
-            using var lessCsv = new NormalizedCsvWriter(Path.Combine(outputDir, "Normalized_LESSHST.csv"), append: false);
+            using var lessCsv = CreateCsv(Path.Combine(outputDir, "Normalized_LESSHST.csv"), append: false);
             var lessParser = new Parsers.LessHstParser();
             lessParser.AttachNormalizedWriter(lessCsv);
             lessParser.AttachHostname(hostname);
@@ -573,7 +584,7 @@ public class ParserOrchestrator
         _log($"CRONTAB: scanning {crontabFiles.Count} crontab file(s)…");
 
         var csvPath = Path.Combine(outputDir, "Normalized_CRONTAB.csv");
-        using var csv = new NormalizedCsvWriter(csvPath, append: false);
+        using var csv = CreateCsv(csvPath, append: false);
         var scanner = new CrontabScanner();
         TryAttach(scanner, csv);
         scanner.SetHostUtcOffset(_currentHostUtcOffset);
@@ -652,7 +663,7 @@ public class ParserOrchestrator
 
         // Attach CSV writer if supported
         var csvPath = Path.Combine(outputDir, $"Normalized_{logKey}.csv");
-        using var csv = new NormalizedCsvWriter(csvPath, append: false);
+        using var csv = CreateCsv(csvPath, append: false);
         TryAttach(parser, csv);
 
         var allFindings = new List<string>();
@@ -775,7 +786,7 @@ public class ParserOrchestrator
             if (logFiles.Count == 0) continue;
 
             var csvPath = Path.Combine(outputDir, $"Normalized_{logKey.Replace(".", "_")}.csv");
-            using var csv = new NormalizedCsvWriter(csvPath, append: false);
+            using var csv = CreateCsv(csvPath, append: false);
             var parser = new AuthSecureLogParser();
             TryAttach(parser, sessionTracker);
             TryAttach(parser, csv);
@@ -1367,6 +1378,13 @@ public class ParserOrchestrator
         fileCounts[logKey] = files.Count;
     }
 
+    /// <summary>
+    /// All normalized CSV writers go through here so every Normalized_*.csv
+    /// for a collection gets the same, resolved Hostname on every row.
+    /// </summary>
+    private NormalizedCsvWriter CreateCsv(string csvPath, bool append = false)
+        => new NormalizedCsvWriter(csvPath, append) { Hostname = _currentHostname };
+
     private static void TryAttach(object target, NormalizedCsvWriter writer)
     {
         var m = target.GetType().GetMethod("AttachNormalizedWriter", new[] { typeof(NormalizedCsvWriter) });
@@ -1407,7 +1425,9 @@ public class ParserOrchestrator
     {
         if (string.IsNullOrWhiteSpace(collectionName)) return string.Empty;
         var m = Regex.Match(collectionName,
-            @"^uac-(?<host>.+?)-\d{14}$", RegexOptions.IgnoreCase);
+            // Default UAC naming is uac-<host>-<os>-<timestamp>; strip the OS token.
+            @"^uac-(?<host>.+?)(?:-(?:linux|aix|freebsd|macos|netbsd|netscaler|openbsd|solaris|esxi|android))?-\d{14}$",
+            RegexOptions.IgnoreCase);
         return m.Success ? m.Groups["host"].Value : collectionName;
     }
 }
