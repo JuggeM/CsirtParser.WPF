@@ -196,17 +196,31 @@ public class MainViewModel : ViewModelBase
 
                 var expectedPath = Path.Combine(decompressDir, folderName);
 
-                if (Directory.Exists(expectedPath))
+                // A collection counts as extracted only if its final folder exists
+                // AND has content. Extraction writes into a temporary sibling
+                // folder that is renamed to the final name only on success, so an
+                // interrupted or failed extraction never leaves a folder behind
+                // that would be mistaken for a finished one.
+                if (Directory.Exists(expectedPath)
+                    && Directory.EnumerateFileSystemEntries(expectedPath).Any())
                 {
                     UI(() => ScanStatus = $"Already extracted: {folderName}");
                     continue;
                 }
 
+                // "_" prefix keeps the temp folder out of collection discovery,
+                // which only picks up folders starting with "uac".
+                var partialPath = Path.Combine(decompressDir, "_partial_" + folderName);
+
                 UI(() => ScanStatus = $"Extracting {i + 1} of {archives.Count}: {archiveName}…");
 
                 try
                 {
-                    Directory.CreateDirectory(expectedPath);
+                    // Leftovers from an earlier failed/interrupted run.
+                    if (Directory.Exists(partialPath)) Directory.Delete(partialPath, recursive: true);
+                    if (Directory.Exists(expectedPath)) Directory.Delete(expectedPath, recursive: true); // empty
+                    Directory.CreateDirectory(partialPath);
+                    var partialPrefix = Path.GetFullPath(partialPath) + Path.DirectorySeparatorChar;
 
                     await Task.Run(() =>
                     {
@@ -231,8 +245,8 @@ public class MainViewModel : ViewModelBase
                             try
                             {
                                 var relPath = entry.Name.TrimStart('/', '\\');
-                                var destPath = Path.GetFullPath(Path.Combine(expectedPath, relPath));
-                                if (!destPath.StartsWith(expectedPath, StringComparison.OrdinalIgnoreCase))
+                                var destPath = Path.GetFullPath(Path.Combine(partialPath, relPath));
+                                if (!destPath.StartsWith(partialPrefix, StringComparison.OrdinalIgnoreCase))
                                     continue;
                                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
                                 if (entry.DataStream != null)
@@ -249,10 +263,18 @@ public class MainViewModel : ViewModelBase
 
                         if (tarStream is System.IO.Compression.GZipStream gz) gz.Dispose();
                     });
+
+                    if (!Directory.EnumerateFileSystemEntries(partialPath).Any())
+                        throw new InvalidDataException("archive produced no files");
+
+                    // Commit: only a fully extracted collection gets its final name.
+                    Directory.Move(partialPath, expectedPath);
                 }
                 catch (Exception ex)
                 {
                     extractErrors.Add($"[ERROR] {archiveName}: {ex.Message}");
+                    try { if (Directory.Exists(partialPath)) Directory.Delete(partialPath, recursive: true); }
+                    catch { /* best effort */ }
                 }
             }
         }
@@ -276,7 +298,12 @@ public class MainViewModel : ViewModelBase
                     || Directory.Exists(Path.Combine(dir, "logs"))
                     || Directory.Exists(Path.Combine(dir, "live_response")))
                 {
-                    found.Add(relative + "/");
+                    var outputBase = Path.IsPathRooted(Config.OutputPath)
+                        ? Config.OutputPath
+                        : Path.Combine(Config.CaseFolderPath, "Processed");
+                    found.Add(Services.ParserOrchestrator.IsCollectionProcessed(outputBase, name)
+                        ? relative + "/  (already processed — will be skipped)"
+                        : relative + "/");
                 }
             }
         }

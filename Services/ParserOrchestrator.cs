@@ -65,6 +65,23 @@ public class ParserOrchestrator
 
             var (collectionName, rootPath) = collectionList[i];
             var outputDir = Path.Combine(outputBase, collectionName);
+
+            // Check 2: already processed and saved to Processed\ ?
+            if (IsCollectionProcessed(outputBase, collectionName))
+            {
+                _log($"===== Skipping {collectionName}: already processed ({outputDir}) =====");
+                progress?.Report((double)(i + 1) / total);
+                continue;
+            }
+
+            // Output without a completion marker comes from an interrupted or
+            // failed run. Several writers append to existing files, so
+            // processing on top of it would duplicate rows — start clean.
+            if (Directory.Exists(outputDir) && Directory.EnumerateFileSystemEntries(outputDir).Any())
+            {
+                _log($"[WARN] [{collectionName}] Incomplete output from an earlier run — clearing and reprocessing.");
+                Directory.Delete(outputDir, recursive: true);
+            }
             Directory.CreateDirectory(outputDir);
 
             _log($"===== Collection: {collectionName} =====");
@@ -125,10 +142,28 @@ public class ParserOrchestrator
                 }
             }
 
+            // Written last: its presence means every step for this collection
+            // finished. A cancelled run throws before reaching this point.
+            File.WriteAllText(Path.Combine(outputDir, ProcessedMarkerFile),
+                $"Processed {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z{Environment.NewLine}");
+
             // Report progress as fraction of collections completed
             progress?.Report((double)(i + 1) / total);
         }
     }
+
+    // ── Processed-state check ────────────────────────────────────────
+    /// <summary>Marker written to Processed\&lt;collection&gt;\ once all parsing is done.</summary>
+    public const string ProcessedMarkerFile = ".processed";
+
+    /// <summary>
+    /// True when the collection has been fully processed and saved under
+    /// <paramref name="outputBase"/>. Delete the collection's output folder
+    /// (or just the marker) to force it to be processed again.
+    /// </summary>
+    public static bool IsCollectionProcessed(string outputBase, string collectionName) =>
+        !string.IsNullOrWhiteSpace(outputBase)
+        && File.Exists(Path.Combine(outputBase, collectionName, ProcessedMarkerFile));
 
     // ── Collection discovery ─────────────────────────────────────────
     private static Dictionary<string, string> BuildCollectionMap(string decompressDir)
