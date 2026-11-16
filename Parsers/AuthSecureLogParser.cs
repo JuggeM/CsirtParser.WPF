@@ -28,7 +28,6 @@ namespace Parsers
         // Critical: shell spawns via sudo, brute-force detections
         private static readonly string[] CriticalSudoCommands =
         {
-            "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh",
             "python -c", "python2 -c", "python3 -c",
             "perl -e", "ruby -e", "php -r",
             "nc ", "netcat", "ncat",
@@ -40,6 +39,28 @@ namespace Parsers
             "chmod +x", "chmod 777",
             "wget -O /tmp", "curl -o /tmp",
         };
+
+        // A shell is only a "shell spawn" when it IS the command run via sudo
+        // ("sudo /bin/bash"), not when it is an argument ("useradd -s /bin/bash").
+        private static readonly HashSet<string> ShellBinaries = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh",
+            "/bin/dash", "/bin/zsh", "/usr/bin/zsh", "bash", "sh", "su", "/bin/su", "/usr/bin/su",
+        };
+
+        // Failed attempts from one IP before a success that counts as a
+        // successful brute force / password guess.
+        private const int BruteForceSuccessThreshold = 3;
+
+        private static bool IsCriticalSudoCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return false;
+            var first = command.TrimStart().Split(new[] { ' ', '\t' }, 2)[0];
+            return ShellBinaries.Contains(first)
+                || KeywordMatcher.ContainsAny(command, CriticalSudoCommands)
+                || Indicators.IsPipeToShell(command)
+                || Indicators.SensitiveFileWritten(command) != null;
+        }
 
         // ── Field extractors ──────────────────────────────────────────
         private static string InferLogTypeFromPath(string logFilePath)
@@ -151,6 +172,12 @@ namespace Parsers
             // Critical sudo findings (shell spawns)
             var criticalSudoFindings = new List<string>();
 
+            // Failed attempts per source IP (all users) — used to spot a
+            // success that follows a run of failures from the same IP.
+            var failuresByIp = new Dictionary<string, (int Count, DateTime First, HashSet<string> Users)>();
+            var bruteSuccessFindings = new List<string>();
+            var accountFindings = new List<string>();
+
             foreach (var line in ReadAllLines(logFilePath))
             {
                 // ISO-8601 lines carry an explicit timezone offset — no year correction needed.
@@ -215,6 +242,13 @@ namespace Parsers
                         failedLoginGroups[groupKey] = (1, ts, ts);
 
                     failedLines.Add(line);
+                    if (failuresByIp.TryGetValue(failIp, out var fip))
+                    {
+                        fip.Users.Add(failUser);
+                        failuresByIp[failIp] = (fip.Count + 1, ts < fip.First ? ts : fip.First, fip.Users);
+                    }
+                    else
+                        failuresByIp[failIp] = (1, ts, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { failUser });
                     IncrementPatternCount(patternCounts, "Failed login");
                     if (interestingIPs != null && !string.IsNullOrEmpty(failIp))
                         IncrementIPCount(interestingIPs, failIp);
@@ -242,6 +276,49 @@ namespace Parsers
                         acceptedGroups[accKey] = (accUser, accIp, 1, ts, ts);
                 }
 
+                // ── Success after failures from the same IP (any auth method) ──
+                var anyAcceptM = Regex.Match(line,
+                    @"Accepted (?<method>password|publickey|keyboard-interactive/pam|gssapi\S*) for (?<user>\S+) from (?<ip>\d{1,3}(\.\d{1,3}){3})",
+                    RegexOptions.IgnoreCase);
+                if (anyAcceptM.Success
+                    && failuresByIp.TryGetValue(anyAcceptM.Groups["ip"].Value, out var priorFails)
+                    && priorFails.Count >= BruteForceSuccessThreshold)
+                {
+                    string okUser = anyAcceptM.Groups["user"].Value;
+                    string okIp = anyAcceptM.Groups["ip"].Value;
+                    IncrementPatternCount(patternCounts, "Brute force succeeded");
+                    bruteSuccessFindings.Add(
+                        $"[AUTH] [CRITICAL] [{ts:yyyy-MM-dd HH:mm:ss} UTC] Brute force succeeded: " +
+                        $"{okUser} logged in from {okIp} ({anyAcceptM.Groups["method"].Value}) after " +
+                        $"{priorFails.Count} failed attempt(s) since {priorFails.First:yyyy-MM-dd HH:mm:ss} UTC " +
+                        $"(users tried: {string.Join(", ", priorFails.Users.OrderBy(u => u))})");
+                    // Count from zero again so a later burst is reported separately.
+                    failuresByIp.Remove(okIp);
+                }
+
+                // ── Account / group creation (persistence) ───────────
+                var newUserM = Regex.Match(line,
+                    @"new user: name=(?<name>[^,\s]+),\s*UID=(?<uid>\d+)(?:.*?home=(?<home>[^,\s]+))?(?:.*?shell=(?<shell>[^,\s]+))?",
+                    RegexOptions.IgnoreCase);
+                if (newUserM.Success)
+                {
+                    IncrementPatternCount(patternCounts, "Account created");
+                    accountFindings.Add(
+                        $"[AUTH] [HIGH] [{ts:yyyy-MM-dd HH:mm:ss} UTC] Account created: {newUserM.Groups["name"].Value} " +
+                        $"(UID {newUserM.Groups["uid"].Value}" +
+                        (newUserM.Groups["shell"].Success ? $", shell {newUserM.Groups["shell"].Value}" : "") + ")");
+                }
+                var groupAddM = Regex.Match(line,
+                    @"(?:add '(?<user>[^']+)' to (?:shadow )?group '(?<group>sudo|wheel|admin|root|docker)')",
+                    RegexOptions.IgnoreCase);
+                if (groupAddM.Success)
+                {
+                    IncrementPatternCount(patternCounts, "Privileged group membership");
+                    accountFindings.Add(
+                        $"[AUTH] [HIGH] [{ts:yyyy-MM-dd HH:mm:ss} UTC] User {groupAddM.Groups["user"].Value} " +
+                        $"added to privileged group '{groupAddM.Groups["group"].Value}'");
+                }
+
                 // ── Sudo command ─────────────────────────────────────
                 var sudoM = Regex.Match(line,
                     @":\s+(\w+)\s+:\s+TTY=.*?;\s+PWD=.*?;\s+USER=.*?;\s+COMMAND=(?<cmd>.+)$",
@@ -260,8 +337,7 @@ namespace Parsers
                         || command.Contains("AnsiballZ", StringComparison.OrdinalIgnoreCase);
 
                     // Only flag if the command spawns a shell or does something critical
-                    bool isCritical = !isAnsible && CriticalSudoCommands.Any(kw =>
-                        command.Contains(kw, StringComparison.OrdinalIgnoreCase));
+                    bool isCritical = !isAnsible && IsCriticalSudoCommand(command);
 
                     if (isCritical)
                     {
@@ -278,19 +354,22 @@ namespace Parsers
                 string normSeverity = "Info";
                 if (failedM.Success) normSeverity = "Medium";
                 if (acceptedM.Success) normSeverity = "Info";
+                if (anyAcceptM.Success && bruteSuccessFindings.Count > 0
+                    && bruteSuccessFindings[^1].Contains($"{ts:yyyy-MM-dd HH:mm:ss} UTC")) normSeverity = "Critical";
+                if (newUserM.Success || groupAddM.Success) normSeverity = "High";
                 if (sudoM.Success)
                 {
                     string cmd = sudoM.Groups["cmd"].Value;
-                    normSeverity = CriticalSudoCommands.Any(kw =>
-                        cmd.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                        ? "High" : "Medium";
+                    normSeverity = IsCriticalSudoCommand(cmd) ? "High" : "Medium";
                 }
 
                 WriteNormalized(ts, hostname, logType, daemon,
                     user, ip, message, normSeverity, line);
             }
 
-            // ── Emit Critical sudo findings ───────────────────────────
+            // ── Emit Critical findings first ──────────────────────────
+            findings.AddRange(bruteSuccessFindings);
+            findings.AddRange(accountFindings);
             foreach (var f in criticalSudoFindings)
                 findings.Add(f);
 

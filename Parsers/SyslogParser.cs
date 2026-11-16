@@ -110,8 +110,8 @@ namespace Parsers
                     return "Info";
 
                 // Critical cron keywords
-                if (CriticalCronKeywords.Any(kw =>
-                        localCmd.Contains(kw, StringComparison.OrdinalIgnoreCase)))
+                if (KeywordMatcher.ContainsAny(localCmd, CriticalCronKeywords)
+                    || Indicators.IsPipeToShell(localCmd))
                     return "Critical";
 
                 // Everything else → Info (routine cron noise)
@@ -231,6 +231,10 @@ namespace Parsers
 
                 var (ts, host, daemon, msg) = ParseFields(line, logFilePath);
                 if (ts == DateTime.MinValue) continue;
+                // Host-local → UTC per line (no-op for ISO lines, already Utc).
+                // Previously only first/last were corrected, so finding times
+                // were host-local while labelled "UTC".
+                ts = CorrectTimestamp(ts);
 
                 if (ts < firstSeen) firstSeen = ts;
                 if (ts > lastSeen) lastSeen = ts;
@@ -272,7 +276,7 @@ namespace Parsers
                 if (tier == "Critical")
                 {
                     string example = cronCmd != null
-                        ? $"[CRON] user={cronUser} CMD: {cronCmd}"
+                        ? $"user={cronUser} CMD: {cronCmd}"
                         : msg;
 
                     if (example.Length > 160) example = example.Substring(0, 157) + "...";
@@ -313,7 +317,7 @@ namespace Parsers
                     ? $"{g.First:yyyy-MM-dd HH:mm:ss} UTC"
                     : $"{g.First:yyyy-MM-dd HH:mm:ss} \u2192 {g.Last:yyyy-MM-dd HH:mm:ss} UTC (x{g.Count})";
 
-                findings.Add($"[SYSLOG] [HIGH] [{g.Label}] [{range}] {g.Example}");
+                findings.Add($"[SYSLOG] [HIGH] [{range}] [{g.Label}] {g.Example}");
             }
         }
 

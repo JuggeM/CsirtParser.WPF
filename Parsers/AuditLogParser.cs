@@ -93,8 +93,8 @@ namespace Parsers
                         msg.Contains(kw, StringComparison.OrdinalIgnoreCase)))
                     return "Noise";
 
-                if (CriticalExecKeywords.Any(kw =>
-                        msg.Contains(kw, StringComparison.OrdinalIgnoreCase)))
+                if (KeywordMatcher.ContainsAny(msg, CriticalExecKeywords)
+                    || Indicators.IsPipeToShell(msg))
                     return "Critical";
 
                 return "Noise"; // EXECVE without bad keywords — just count it
@@ -110,7 +110,7 @@ namespace Parsers
             {
                 // execve of something from a temp path
                 if (msgLo.Contains("syscall=59") || msgLo.Contains("syscall=execve"))
-                    if (CriticalExecKeywords.Any(kw => msgLo.Contains(kw)))
+                    if (KeywordMatcher.ContainsAny(msgLo, CriticalExecKeywords))
                         return "Critical";
                 return "Noise";
             }
@@ -118,7 +118,7 @@ namespace Parsers
             // Privilege escalation / ownership changes
             if (type is "CHOWN" or "CHMOD" or "SETUID" or "SETGID")
             {
-                if (CriticalExecKeywords.Any(kw => msgLo.Contains(kw)))
+                if (KeywordMatcher.ContainsAny(msgLo, CriticalExecKeywords))
                     return "Critical";
                 return "Noise";
             }

@@ -14,6 +14,35 @@ public class ParserConfig
     public string CaseFolderPath { get; set; } = string.Empty;
     public string OutputPath { get; set; } = "Processed";
 
+    /// <summary>
+    /// The folder results are actually written to. A relative OutputPath is
+    /// resolved against the case folder (not the process working directory),
+    /// and the case folder root itself is never used — it holds Upload\ and
+    /// Decompressed\, so output there would be mixed with the evidence. Both
+    /// cases fall back to &lt;case&gt;\Processed.
+    /// </summary>
+    public string ResolveOutputPath()
+    {
+        string caseDir = string.IsNullOrWhiteSpace(CaseFolderPath)
+            ? string.Empty
+            : System.IO.Path.GetFullPath(CaseFolderPath);
+        string defaultOut = System.IO.Path.Combine(caseDir, "Processed");
+
+        if (string.IsNullOrWhiteSpace(OutputPath))
+            return defaultOut;
+
+        string resolved = System.IO.Path.IsPathRooted(OutputPath)
+            ? System.IO.Path.GetFullPath(OutputPath)
+            : System.IO.Path.GetFullPath(System.IO.Path.Combine(caseDir, OutputPath));
+
+        if (caseDir.Length > 0 && string.Equals(
+                resolved.TrimEnd('\\', '/'), caseDir.TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase))
+            return defaultOut;
+
+        return resolved;
+    }
+
     // Optional date-range filter (null = no filter)
     public DateTime? FilterFrom { get; set; }
     public DateTime? FilterTo { get; set; }

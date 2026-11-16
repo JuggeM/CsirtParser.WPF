@@ -330,7 +330,7 @@ namespace Parsers
                     tier == "Critical" ? "Critical shell command" : "Suspicious shell command");
 
                 findings.Add(
-                    $"[BASH] {tag} [{tsStr}] user={username}: {display}{gapNote}");
+                    $"[BASH] {tag} [{tsStr}] user={username}: {display}{ReasonFor(cmd)}{Indicators.DecodedSuffix(cmd)}{gapNote}");
 
                 // Extract SSH lateral movement targets
                 if (cmd.StartsWith("ssh ", StringComparison.OrdinalIgnoreCase))
@@ -371,17 +371,29 @@ namespace Parsers
         {
             if (string.IsNullOrWhiteSpace(cmd)) return "Info";
 
+            // Checked BEFORE the whitelist: "echo ... >> /etc/sudoers" and
+            // "history -c" start with whitelisted words ("echo ", "history").
+            if (Indicators.IsAntiForensics(cmd)
+                || Indicators.SensitiveFileWritten(cmd) != null
+                || Indicators.IsPipeToShell(cmd))
+                return "Critical";
+
             if (IsWhitelisted(cmd)) return "Info";
 
-            var lo = cmd.ToLowerInvariant();
-
-            foreach (var kw in CriticalKeywords)
-                if (lo.Contains(kw, StringComparison.OrdinalIgnoreCase)) return "Critical";
-
-            foreach (var kw in SuspiciousKeywords)
-                if (lo.Contains(kw, StringComparison.OrdinalIgnoreCase)) return "Suspicious";
+            if (KeywordMatcher.ContainsAny(cmd, CriticalKeywords)) return "Critical";
+            if (KeywordMatcher.ContainsAny(cmd, SuspiciousKeywords)) return "Suspicious";
 
             return "Info";
+        }
+
+        /// <summary>Short "why" for the analyst on the special-cased indicators.</summary>
+        private static string ReasonFor(string cmd)
+        {
+            if (Indicators.IsAntiForensics(cmd)) return "  [anti-forensics]";
+            var written = Indicators.SensitiveFileWritten(cmd);
+            if (written != null) return $"  [writes {written}]";
+            if (Indicators.IsPipeToShell(cmd)) return "  [piped into shell]";
+            return string.Empty;
         }
 
         private static bool IsWhitelisted(string cmd)
@@ -401,17 +413,7 @@ namespace Parsers
             return false;
         }
 
-        private static bool IsAntiForensics(string cmd)
-        {
-            var lo = cmd.ToLowerInvariant();
-            return lo.Contains("history -c")
-                || lo.Contains("history -w /dev/null")
-                || lo.Contains("unset histfile")
-                || lo.Contains("histfile=/dev/null")
-                || lo.Contains("shred") && lo.Contains("log")
-                || lo.Contains("rm -rf /var/log")
-                || lo.Contains("rm -f /var/log");
-        }
+        private static bool IsAntiForensics(string cmd) => Indicators.IsAntiForensics(cmd);
 
         // ════════════════════════════════════════════════════════════════
         // Helpers

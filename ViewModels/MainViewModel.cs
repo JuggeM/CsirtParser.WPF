@@ -120,9 +120,13 @@ public class MainViewModel : ViewModelBase
         {
             Description = "Select the output folder",
             UseDescriptionForTitle = true,
-            SelectedPath = Directory.Exists(Config.CaseFolderPath)
-                                     ? Config.CaseFolderPath
-                                     : string.Empty
+            // Start in the current output folder (normally <case>\Processed),
+            // not the case root — picking the root used to dump output there.
+            SelectedPath = Directory.Exists(Config.ResolveOutputPath())
+                                     ? Config.ResolveOutputPath()
+                                     : Directory.Exists(Config.CaseFolderPath)
+                                         ? Config.CaseFolderPath
+                                         : string.Empty
         };
         if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
@@ -141,12 +145,18 @@ public class MainViewModel : ViewModelBase
 
         if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
+            var previousCase = Config.CaseFolderPath;
             Config.CaseFolderPath = dlg.SelectedPath;
 
+            // Follow the new case unless the analyst chose a custom output
+            // folder. Compare against the PREVIOUS case's defaults — the old
+            // check compared with the already-updated path and never matched,
+            // so output stayed in the previous case's folder.
             if (string.IsNullOrWhiteSpace(Config.OutputPath)
-                || Config.OutputPath == "Processed"
                 || !Path.IsPathRooted(Config.OutputPath)
-                || Config.OutputPath == Path.Combine(Config.CaseFolderPath, "Processed"))
+                || (!string.IsNullOrWhiteSpace(previousCase)
+                    && (PathEquals(Config.OutputPath, Path.Combine(previousCase, "Processed"))
+                        || PathEquals(Config.OutputPath, previousCase))))
             {
                 Config.OutputPath = Path.Combine(dlg.SelectedPath, "Processed");
             }
@@ -155,6 +165,11 @@ public class MainViewModel : ViewModelBase
             _ = ScanForCollections();
         }
     }
+
+    private static bool PathEquals(string a, string b) =>
+        string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'),
+                      Path.GetFullPath(b).TrimEnd('\\', '/'),
+                      StringComparison.OrdinalIgnoreCase);
 
     // ── UI thread helper ─────────────────────────────────────────────
     private static void UI(Action a) =>
@@ -298,9 +313,7 @@ public class MainViewModel : ViewModelBase
                     || Directory.Exists(Path.Combine(dir, "logs"))
                     || Directory.Exists(Path.Combine(dir, "live_response")))
                 {
-                    var outputBase = Path.IsPathRooted(Config.OutputPath)
-                        ? Config.OutputPath
-                        : Path.Combine(Config.CaseFolderPath, "Processed");
+                    var outputBase = Config.ResolveOutputPath();
                     found.Add(Services.ParserOrchestrator.IsCollectionProcessed(outputBase, name)
                         ? relative + "/  (already processed — will be skipped)"
                         : relative + "/");
@@ -349,6 +362,13 @@ public class MainViewModel : ViewModelBase
             Log($"Case: {Config.CaseName}", LogLevel.Info);
             Log($"Analyst: {Config.AnalystName}", LogLevel.Info);
             Log($"Folder: {Config.CaseFolderPath}", LogLevel.Info);
+
+            // Check 1 always runs first: extract anything in Upload\ that is
+            // not yet (fully) in Decompressed\. Check 2 (already processed)
+            // happens per collection inside the orchestrator.
+            Log(@"Checking Upload\ for archives to extract…", LogLevel.Info);
+            await ScanForCollections();
+
             Log("Starting parse run…", LogLevel.Info);
 
             await Task.Run(() => RunParsers(ct, progressReporter), ct);
@@ -381,7 +401,7 @@ public class MainViewModel : ViewModelBase
             return;
         }
 
-        Directory.CreateDirectory(Config.OutputPath);
+        Directory.CreateDirectory(Config.ResolveOutputPath());
 
         var orchestrator = new Services.ParserOrchestrator(Config,
             message => Log(message,

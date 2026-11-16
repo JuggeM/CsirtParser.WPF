@@ -132,10 +132,10 @@ namespace Parsers
                 if (exe.Contains(p)) return "Critical";
 
             // Command contains an unambiguous attacker keyword
-            foreach (var kw in CriticalCmdKeywords)
-                if (cmd.Contains(kw, StringComparison.OrdinalIgnoreCase)
-                    || msg.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                    return "Critical";
+            if (KeywordMatcher.ContainsAny(cmd, CriticalCmdKeywords)
+                || KeywordMatcher.ContainsAny(msg, CriticalCmdKeywords)
+                || Indicators.IsPipeToShell(cmd) || Indicators.IsPipeToShell(msg))
+                return "Critical";
 
             // Non-ansible sudo running something from a temp path in cmdline
             if (ident == "sudo")
@@ -154,8 +154,8 @@ namespace Parsers
 
             // ── NOISE fallback ────────────────────────────────────────
             // Noisy keywords without escalating context
-            foreach (var kw in NoiseCmdKeywords)
-                if (cmdLo.Contains(kw) || msg.Contains(kw)) return "Noise";
+            if (KeywordMatcher.ContainsAny(cmdLo, NoiseCmdKeywords)
+                || KeywordMatcher.ContainsAny(msg, NoiseCmdKeywords)) return "Noise";
 
             // Priority 2-4 (Critical/Error/Warning) — notable but not RTF
             if (e.Priority <= 4) return "Noise";
@@ -289,12 +289,13 @@ namespace Parsers
             if (!string.IsNullOrEmpty(rep.Identifier)) sb.Append($" [{rep.Identifier}]");
             if (rep.Uid.HasValue) sb.Append($" UID={rep.Uid}");
             if (!string.IsNullOrEmpty(rep.Message))
-                sb.Append($" {NormalizeForDisplay(rep.Message)}");
+                sb.Append($" {NormalizeForDisplay(rep.Message.Trim())}");
 
             if (!string.IsNullOrEmpty(rep.Cmdline) && rep.Cmdline != rep.Message)
                 sb.Append($" | CMD: {NormalizeForDisplay(rep.Cmdline)}");
 
             if (!string.IsNullOrEmpty(rep.Exe)) sb.Append($" | EXE: {rep.Exe}");
+            sb.Append(Indicators.DecodedSuffix((rep.Cmdline ?? "") + " " + (rep.Message ?? "")));
             return sb.ToString();
         }
 

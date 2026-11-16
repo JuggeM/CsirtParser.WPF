@@ -150,7 +150,10 @@ namespace Parsers
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 if (line.TrimStart().StartsWith("#")) continue;
 
+                // Host-local → UTC per line (idempotent; first/last were the only
+                // values corrected before, so finding times stayed host-local).
                 DateTime ts = TryParseTimestamp(line);
+                if (ts != DateTime.MinValue) ts = CorrectTimestamp(ts);
                 if (ts == DateTime.MinValue) continue;
 
                 if (ts < firstSeen) firstSeen = ts;

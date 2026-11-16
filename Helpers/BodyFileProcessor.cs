@@ -133,6 +133,7 @@ namespace Helpers
             var bestByPath = new Dictionary<string, (int Score, string Reason, DateTime? MUtc, long Size)>(
                                    StringComparer.OrdinalIgnoreCase);
             var countByFolder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var tempDrops = new List<string>();
 
             foreach (var line in File.ReadLines(bodyFilePath))
             {
@@ -152,10 +153,15 @@ namespace Helpers
                     var ctEpoch = TryParseLong(parts[9]);
                     var btEpoch = TryParseLong(parts[10]);
 
+                    var mode = parts[3];
                     parsed.Entries.Add(new BodyFileEntry
                     {
                         Path = path,
                         Size = size,
+                        Mode = mode,
+                        UID = parts[4],
+                        GID = parts[5],
+                        MD5 = parts[0] == "0" ? string.Empty : parts[0],
                         AccessEpoch = atEpoch,
                         ModifyEpoch = mtEpoch,
                         ChangeEpoch = ctEpoch,
@@ -171,6 +177,19 @@ namespace Helpers
                             parsed.FirstLogUtc = utc.Value;
                         if (utc.Value > parsed.LastLogUtc)
                             parsed.LastLogUtc = utc.Value;
+                    }
+
+                    // ── Executable / hidden file in a world-writable temp dir ────
+                    // Always reported (before the whitelist, which covers /var/tmp/):
+                    // droppers and miners live here, and it's rare for anything
+                    // legitimate to be executable there.
+                    if (IsTempDropCandidate(path, mode, out var why))
+                    {
+                        var tmUtc = ToUtc(mtEpoch);
+                        tempDrops.Add(
+                            $"[BODYFILE] [{(why == "Hidden file" ? "MEDIUM" : "HIGH")}] {(tmUtc.HasValue ? $"[{tmUtc:yyyy-MM-dd HH:mm:ss} UTC] " : "")}" +
+                            $"{why} in temp dir: {path} (mode {mode}, uid {parts[4]}, size {size})");
+                        continue;
                     }
 
                     // ── Noise suppression ────────────────────────────────────────
@@ -226,6 +245,9 @@ namespace Helpers
                 }
             }
 
+            // Temp-dir executables first — they are the strongest bodyfile signal
+            parsed.Findings.AddRange(tempDrops.Distinct().Take(50));
+
             // Emit findings (already deduped and capped), ordered by score descending
             foreach (var kv in bestByPath.OrderByDescending(k => k.Value.Score).ThenBy(k => k.Key))
             {
@@ -239,6 +261,39 @@ namespace Helpers
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static readonly string[] TempDirs = { "/tmp/", "/dev/shm/", "/var/tmp/" };
+
+        /// <summary>
+        /// Regular file under /tmp, /dev/shm or /var/tmp that is executable or
+        /// hidden (dot-name). Mode is the bodyfile mode string, e.g.
+        /// "-rwxr-xr-x" or TSK-style "r/rrwxr-xr-x".
+        /// </summary>
+        private static bool IsTempDropCandidate(string path, string mode, out string why)
+        {
+            why = string.Empty;
+            if (string.IsNullOrEmpty(path)) return false;
+            if (!TempDirs.Any(t => path.StartsWith(t, StringComparison.Ordinal))) return false;
+
+            var perms = mode ?? string.Empty;
+            if (perms.StartsWith("d", StringComparison.Ordinal)) return false;          // directory
+            if (perms.Contains('/')) perms = perms.Substring(perms.LastIndexOf('/') + 1);
+            if (perms.Length > 9) perms = perms.Substring(perms.Length - 9);
+            if (perms.StartsWith("d", StringComparison.Ordinal)) return false;
+
+            bool exec = perms.Length == 9 && (perms[2] is 'x' or 's' || perms[5] is 'x' or 's' || perms[8] is 'x' or 't');
+            var name = path.Substring(path.LastIndexOf('/') + 1);
+            bool hidden = name.StartsWith(".", StringComparison.Ordinal) && name.Length > 1;
+
+            // Skip well-known benign temp files
+            if (name.StartsWith(".X", StringComparison.Ordinal) || name.StartsWith(".ICE", StringComparison.Ordinal)
+                || name is ".font-unix" or ".Test-unix") return false;
+
+            if (exec && hidden) why = "Hidden executable";
+            else if (exec) why = "Executable";
+            else if (hidden) why = "Hidden file";
+            return why.Length > 0;
+        }
 
         private static bool IsWhitelistedPath(string path, IReadOnlyList<string> prefixes)
         {

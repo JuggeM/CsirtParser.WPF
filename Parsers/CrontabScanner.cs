@@ -27,7 +27,7 @@ namespace Parsers
         private static readonly string[] CriticalJobKeywords =
         {
             // Shell spawns / one-liners
-            "bash -i", "sh -i", "zsh -i",
+            "bash -i", "sh -i", "zsh -i", "dash -i", "ksh -i",
             "python -c", "python2 -c", "python3 -c",
             "perl -e", "ruby -e", "php -r",
             // Network tools
@@ -75,18 +75,24 @@ namespace Parsers
 
         private static string ClassifyJob(string cmd)
         {
+            if (Indicators.IsPipeToShell(cmd)
+                || Indicators.SensitiveFileWritten(cmd) != null) return "Critical";
+
             if (IsWhitelisted(cmd)) return "Info";
 
             foreach (var kw in CriticalJobKeywords)
-                if (cmd.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                if (ContainsKeyword(cmd, kw))
                     return "Critical";
 
             foreach (var kw in SuspiciousJobKeywords)
-                if (cmd.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                if (ContainsKeyword(cmd, kw))
                     return "Suspicious";
 
             return "Info";
         }
+
+        private static bool ContainsKeyword(string cmd, string kw) =>
+            KeywordMatcher.ContainsKeyword(cmd, kw);
 
         // ── Crontab file discovery ────────────────────────────────────
         public static List<string> DiscoverCrontabFiles(string collectionRoot)
@@ -252,7 +258,7 @@ namespace Parsers
 
                 findings.Add(
                     $"[CRONTAB] [{severity}] [{Path.GetFileName(logFilePath)}] " +
-                    $"user={user} schedule={schedule} CMD: {display}");
+                    $"user={user} schedule={schedule} CMD: {display}{Indicators.DecodedSuffix(command)}");
 
                 _normalizedWriter?.Write(NormalizedRecord.From(
                     fileTime,

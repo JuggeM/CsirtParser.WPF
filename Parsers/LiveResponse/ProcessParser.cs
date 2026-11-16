@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Helpers;
 
 namespace Parser.Parsers.LiveResponse
 {
@@ -92,15 +93,21 @@ namespace Parser.Parsers.LiveResponse
 
             results.Add($"[Processes] Parsed {procEntries.Count} entries from ps_aux.txt");
 
-            // Suspicious process names / keywords
-            string[] susKeywords = {
+            // Suspicious commands — matched at a word start so "nc " does not
+            // hit "rsync ", "php " does not hit "somephp ", etc.
+            string[] susCommands = {
                 "nc ", "netcat", "bash -i", "perl ", "python ", "php ", "curl ", "wget ",
-                "nmap", "xmrig", "crypto", "miner", "reverse", "revsh", "socat",
-                "pty.spawn", "shell", "sudo su", "dropbear", "kworker", "crontab"
+                "nmap", "socat", "pty.spawn", "sudo su", "dropbear", "crontab"
+            };
+            // Name fragments — deliberately matched anywhere ("cpuminer",
+            // "xmrig-6.21", "revshell", fake "[kworker/0:1]").
+            string[] susFragments = {
+                "xmrig", "crypto", "miner", "reverse", "revsh", "shell", "kworker"
             };
 
             var susProcs = procEntries
-                .Where(p => susKeywords.Any(k => p.cmdline.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0))
+                .Where(p => KeywordMatcher.ContainsAny(p.cmdline, susCommands)
+                         || susFragments.Any(k => p.cmdline.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0))
                 .Take(10)
                 .ToList();
 

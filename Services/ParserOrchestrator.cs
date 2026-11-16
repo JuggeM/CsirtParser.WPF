@@ -33,6 +33,13 @@ public class ParserOrchestrator
     private TimeSpan? _currentHostUtcOffset;
     private string _currentHostname = string.Empty;
 
+    // Every finding for the collection being processed, tagged with its source,
+    // so the KEY FINDINGS / IOC block can be built once all parsers have run.
+    private readonly List<(string Source, string Finding)> _collectedFindings = new();
+    private readonly List<CoverageTable.SourceInfo> _sourceInfos = new();
+    private readonly Dictionary<string, Dictionary<string, int>> _patternsBySource = new();
+    private bool _liveResponseWritten;
+
     public ParserOrchestrator(ParserConfig config, Action<string> log)
     {
         _config = config;
@@ -43,7 +50,8 @@ public class ParserOrchestrator
     public void RunAll(CancellationToken ct = default, IProgress<double>? progress = null)
     {
         var decompressDir = Path.Combine(_config.CaseFolderPath, "Decompressed");
-        var outputBase = _config.OutputPath;
+        var outputBase = _config.ResolveOutputPath();
+        _log($"Output: {outputBase}");
 
         Directory.CreateDirectory(outputBase);
 
@@ -85,6 +93,12 @@ public class ParserOrchestrator
             Directory.CreateDirectory(outputDir);
 
             _log($"===== Collection: {collectionName} =====");
+            _collectedFindings.Clear();
+            _sourceInfos.Clear();
+            _patternsBySource.Clear();
+            _liveResponseWritten = false;
+            _currentHostname = string.Empty;
+            _currentHostUtcOffset = null;
 
             if (_config.ParseAuth || _config.ParseCrontab || _config.ParseMessages
                 || _config.ParseSyslog || _config.ParseWebLogs || _config.ParseDocker
@@ -94,8 +108,11 @@ public class ParserOrchestrator
                 ProcessLogs(collectionName, rootPath, outputDir);
             }
 
-            if (_config.ParseProcess || _config.ParseNetwork || _config.ParsePersistence
-                || _config.ParseFileSystem)
+            // Skipped when ProcessLogs already wrote the live response report
+            // (it used to be written twice into the same file).
+            if (!_liveResponseWritten
+                && (_config.ParseProcess || _config.ParseNetwork || _config.ParsePersistence
+                    || _config.ParseFileSystem))
             {
                 ct.ThrowIfCancellationRequested();
                 var lrPath = Directory.EnumerateDirectories(
@@ -126,6 +143,14 @@ public class ParserOrchestrator
                 }
             }
 
+            // Analyst summary at the top of QuickWins.txt — built last so it
+            // covers every source, including the body file.
+            if (_config.OutputQuickWins)
+            {
+                try { WriteKeyFindings(collectionName, outputDir); }
+                catch (Exception ex) { _log($"[WARN] [{collectionName}] Key findings block failed: {ex.Message}"); }
+            }
+
             _log($"===== Done: {collectionName} =====");
 
             // Convert QuickWins.txt → QuickWins.rtf for formatted output
@@ -149,6 +174,18 @@ public class ParserOrchestrator
 
             // Report progress as fraction of collections completed
             progress?.Report((double)(i + 1) / total);
+        }
+
+        // Case-level summary across every collection in the output folder
+        // (including ones skipped above as already processed).
+        try
+        {
+            var summary = CaseSummary.Write(outputBase, _config.CaseName, _config.AnalystName);
+            if (summary != null) _log($"Case summary written: {summary}");
+        }
+        catch (Exception ex)
+        {
+            _log($"[WARN] Case summary failed: {ex.Message}");
         }
     }
 
@@ -176,6 +213,12 @@ public class ParserOrchestrator
                      .Where(f => Path.GetFileName(f).StartsWith("uac", StringComparison.OrdinalIgnoreCase)))
         {
             var collectionName = Path.GetFileName(folder);
+
+            // An empty folder is a failed/interrupted extraction, not a
+            // collection — processing it would mark it ".processed" with no data.
+            if (!Directory.EnumerateFileSystemEntries(folder).Any())
+                continue;
+
             // UAC archives often contain a nested folder with the same name
             var nested = Path.Combine(folder, collectionName);
             var rootPath = Directory.Exists(nested) ? nested : folder;
@@ -330,6 +373,25 @@ public class ParserOrchestrator
                     var lrOutDir = Path.Combine(outputDir, "LiveResponse");
                     Directory.CreateDirectory(lrOutDir);
                     WriteLiveResponse(lrPath, lrOutDir);
+                    _liveResponseWritten = true;
+
+                    // Running processes / open connections → findings
+                    var lrFindings = LiveResponseTriage.Analyze(lrPath);
+                    suspiciousLogs["LIVE_RESPONSE"] = lrFindings;
+                    patternCounts["LIVE_RESPONSE"] = lrFindings
+                        .GroupBy(f => f.Contains("connection") ? "Suspicious connection" : "Suspicious process")
+                        .ToDictionary(g => g.Key, g => g.Count());
+                    firstLastSeen["LIVE_RESPONSE"] = (DateTime.MaxValue, DateTime.MinValue);
+                    ipLogs["LIVE_RESPONSE"] = new Dictionary<string, int>();
+                    fileCounts["LIVE_RESPONSE"] = 1;
+                    if (lrFindings.Count > 0)
+                    {
+                        _log($"[{collectionName}] LiveResponse: {lrFindings.Count} suspicious process/connection finding(s).");
+                        QuickWinsSectionWriter.WriteSection(
+                            Path.Combine(outputDir, "QuickWins.txt"), "LIVE_RESPONSE",
+                            "No suspicious processes or connections.",
+                            new List<(string FileName, List<string> Findings)> { ("live_response", lrFindings) });
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -559,7 +621,9 @@ public class ParserOrchestrator
 
         // Finalise QuickWins
         DateTime? overallFirst = null, overallLast = null;
-        foreach (var fl in firstLastSeen.Values)
+        // CRONTAB "times" are file modification times (often the extraction
+        // time), not log entries — they would stretch the coverage to "now".
+        foreach (var fl in firstLastSeen.Where(kv => kv.Key != "CRONTAB").Select(kv => kv.Value))
         {
             // Exclude both sentinels: firstSeen starts at MaxValue, lastSeen at MinValue
             if (fl.Item1 != DateTime.MinValue && fl.Item1 != DateTime.MaxValue)
@@ -572,14 +636,17 @@ public class ParserOrchestrator
 
         QuickWinsHeader.UpsertTimeline(outputDir, overallFirst, overallLast);
 
-        var globalLines = GlobalQuickWinsSummary.Build(
-            suspiciousLogs, patternCounts, firstLastSeen, ipLogs, fileCounts, perFileTimestamps);
-
-        // Insert global section immediately after Timeline Coverage so analysts
-        // see the most important findings before the per-parser detail sections.
-        QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "[GLOBAL] Summary", globalLines);
-        QuickWinsSummaries.AppendPerLogSummaries(
-            outputDir, suspiciousLogs, patternCounts, firstLastSeen, fileCounts);
+        // The old [GLOBAL] Summary (findings again) and per-log summaries
+        // (patterns again) are replaced by the COVERAGE table and one
+        // PATTERN COUNTS block, written in WriteKeyFindings once all sources ran.
+        foreach (var kv in fileCounts)
+        {
+            firstLastSeen.TryGetValue(kv.Key, out var fl);
+            _sourceInfos.Add(new CoverageTable.SourceInfo(kv.Key, kv.Value, fl.Item1, fl.Item2,
+                TimesAreFileMtimes: kv.Key == "CRONTAB"));
+        }
+        foreach (var kv in patternCounts)
+            if (kv.Value != null && kv.Value.Count > 0) _patternsBySource[kv.Key] = kv.Value;
 
         if (_config.OutputCollapseDups)
         {
@@ -590,7 +657,62 @@ public class ParserOrchestrator
             QuickWinsTidy.CollapseMessagesDuplicates(outputDir, 2);
         }
 
+        foreach (var kv in suspiciousLogs)
+            foreach (var f in kv.Value)
+                _collectedFindings.Add((kv.Key, f));
+
         _log($"[{collectionName}] QuickWins written.");
+    }
+
+    // Sources the analyst asked for — shown as "not found" in COVERAGE when absent
+    private IEnumerable<string> ExpectedSources()
+    {
+        if (_config.ParseAuth) yield return "AUTH.LOG";
+        if (_config.ParseAudit) yield return "AUDIT";
+        if (_config.ParseSyslog) yield return "SYSLOG";
+        if (_config.ParseMessages) yield return "MESSAGES";
+        if (_config.ParseCrontab) yield return "CRONTAB";
+        if (_config.ParseJournal) yield return "JOURNAL";
+        if (_config.ParseLiveResponse) yield return "LIVE_RESPONSE";
+        if (_config.ParseBodyFile) yield return "BODYFILE";
+        if (_config.ParseBashHistory) yield return "BASH";
+        if (_config.ParseWebLogs) yield return "WEB";
+        if (_config.ParseDocker) yield return "DOCKER";
+    }
+
+    // ── Key findings / IOC block ─────────────────────────────────────
+    private void WriteKeyFindings(string collectionName, string outputDir)
+    {
+        var host = string.IsNullOrEmpty(_currentHostname)
+            ? ExtractHostnameFromCollection(collectionName) : _currentHostname;
+
+        QuickWinsHeader.EnsureHeader(outputDir, DateTime.UtcNow, null, null);
+
+        // InsertGlobalAfterTimeline puts each block directly under the
+        // timeline, so insert bottom-up: coverage, IOCs, key findings, context.
+        QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "COVERAGE (what was checked)",
+            CoverageTable.Build(_sourceInfos, ExpectedSources(), _collectedFindings));
+        QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "IOCs (indicators seen in findings)",
+            KeyFindingsBuilder.BuildIocs(_collectedFindings));
+        QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "KEY FINDINGS (critical/high, all sources)",
+            KeyFindingsBuilder.BuildKeyFindings(_collectedFindings));
+        QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "HOST",
+            KeyFindingsBuilder.BuildContext(host, collectionName, _currentHostUtcOffset,
+                _config.CaseName, _config.AnalystName));
+
+        // Pattern counts once, at the end
+        var pc = new System.Text.StringBuilder();
+        pc.AppendLine();
+        pc.AppendLine("########## PATTERN COUNTS (all sources) ##########");
+        foreach (var l in CoverageTable.BuildPatternCounts(_patternsBySource)) pc.AppendLine(l);
+        File.AppendAllText(Path.Combine(outputDir, "QuickWins.txt"), pc.ToString(),
+            new System.Text.UTF8Encoding(false));
+
+        // Machine-readable copy for the case summary
+        CaseSummary.WriteFindingsFile(outputDir, host, collectionName, _collectedFindings);
+
+        _log($"[{collectionName}] Key findings: " +
+             $"{_collectedFindings.Count(f => KeyFindingsBuilder.Parse(f.Source, f.Finding).Rank <= 1)} critical/high.");
     }
 
     // ── Crontab definition file scanner ─────────────────────────────
@@ -1184,6 +1306,10 @@ public class ParserOrchestrator
         QuickWinsHeader.EnsureHeader(outputDir, DateTime.UtcNow, parsed.FirstLogUtc, parsed.LastLogUtc);
         QuickWinsAppend.WriteProcessedBodyFileCsv(outputDir, parsed);
         QuickWinsAppend.AppendBodyFileFindings(outputDir, parsed.Findings);
+        foreach (var f in parsed.Findings)
+            _collectedFindings.Add(("BODYFILE", f));
+        _sourceInfos.Add(new CoverageTable.SourceInfo("BODYFILE", 1,
+            parsed.FirstLogUtc ?? DateTime.MaxValue, parsed.LastLogUtc ?? DateTime.MinValue));
 
         _log($"[{collectionName}] Body file done.");
     }
