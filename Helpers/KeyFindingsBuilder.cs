@@ -171,9 +171,14 @@ namespace Helpers
 
         public static int IocKindOrder(string kind) => kind switch { "IP" => 0, "URL" => 1, "File" => 2, _ => 3 };
 
-        public static List<string> BuildIocs(IEnumerable<(string Source, string Finding)> all)
+        public static List<string> BuildIocs(IEnumerable<(string Source, string Finding)> all,
+                                             IEnumerable<string>? ownAddresses = null)
         {
             var iocs = ExtractIocs(all);
+            // The host's own addresses are not indicators
+            var own = new HashSet<string>(ownAddresses ?? Enumerable.Empty<string>());
+            foreach (var key in iocs.Keys.Where(k => k.Kind == "IP" && own.Contains(k.Value)).ToList())
+                iocs.Remove(key);
             var lines = new List<string>();
             if (iocs.Count == 0)
             {
@@ -199,7 +204,8 @@ namespace Helpers
 
         // ── Context line ─────────────────────────────────────────────────
         public static List<string> BuildContext(string hostname, string collection, TimeSpan? hostOffset,
-                                                string caseName, string analyst)
+                                                string caseName, string analyst,
+                                                IReadOnlyList<HostIpResolver.HostIp>? ips = null)
         {
             string tz = hostOffset.HasValue
                 ? $"host UTC{(hostOffset.Value < TimeSpan.Zero ? "-" : "+")}{hostOffset.Value:hh\\:mm}, all times shown in UTC"
@@ -208,6 +214,10 @@ namespace Helpers
             {
                 $"  Host:       {hostname}",
                 $"  Collection: {collection}",
+                ips == null || ips.Count == 0
+                    ? "  IP:         unknown (no ip addr / ifconfig output in live_response)"
+                    : $"  IP:         {string.Join(", ", ips.Select(i => i.ToString()))}" +
+                      (ips.All(i => i.Source.Contains("configured")) ? "  [configured, not live]" : ""),
                 $"  Timezone:   {tz}",
             };
             if (!string.IsNullOrWhiteSpace(caseName)) lines.Add($"  Case:       {caseName}");

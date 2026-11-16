@@ -147,7 +147,7 @@ public class ParserOrchestrator
             // covers every source, including the body file.
             if (_config.OutputQuickWins)
             {
-                try { WriteKeyFindings(collectionName, outputDir); }
+                try { WriteKeyFindings(collectionName, rootPath, outputDir); }
                 catch (Exception ex) { _log($"[WARN] [{collectionName}] Key findings block failed: {ex.Message}"); }
             }
 
@@ -681,10 +681,15 @@ public class ParserOrchestrator
     }
 
     // ── Key findings / IOC block ─────────────────────────────────────
-    private void WriteKeyFindings(string collectionName, string outputDir)
+    private void WriteKeyFindings(string collectionName, string rootPath, string outputDir)
     {
         var host = string.IsNullOrEmpty(_currentHostname)
             ? ExtractHostnameFromCollection(collectionName) : _currentHostname;
+
+        var hostIps = HostIpResolver.Resolve(rootPath);
+        _log(hostIps.Count > 0
+            ? $"[{collectionName}] Host IP(s): {string.Join(", ", hostIps)}"
+            : $"[{collectionName}] Host IP: not found in live_response");
 
         QuickWinsHeader.EnsureHeader(outputDir, DateTime.UtcNow, null, null);
 
@@ -693,12 +698,12 @@ public class ParserOrchestrator
         QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "COVERAGE (what was checked)",
             CoverageTable.Build(_sourceInfos, ExpectedSources(), _collectedFindings));
         QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "IOCs (indicators seen in findings)",
-            KeyFindingsBuilder.BuildIocs(_collectedFindings));
+            KeyFindingsBuilder.BuildIocs(_collectedFindings, hostIps.Select(i => i.Address)));
         QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "KEY FINDINGS (critical/high, all sources)",
             KeyFindingsBuilder.BuildKeyFindings(_collectedFindings));
         QuickWinsHeader.InsertGlobalAfterTimeline(outputDir, "HOST",
             KeyFindingsBuilder.BuildContext(host, collectionName, _currentHostUtcOffset,
-                _config.CaseName, _config.AnalystName));
+                _config.CaseName, _config.AnalystName, hostIps));
 
         // Pattern counts once, at the end
         var pc = new System.Text.StringBuilder();
@@ -709,7 +714,8 @@ public class ParserOrchestrator
             new System.Text.UTF8Encoding(false));
 
         // Machine-readable copy for the case summary
-        CaseSummary.WriteFindingsFile(outputDir, host, collectionName, _collectedFindings);
+        CaseSummary.WriteFindingsFile(outputDir, host, collectionName, _collectedFindings,
+            hostIps.Select(i => i.Address));
 
         _log($"[{collectionName}] Key findings: " +
              $"{_collectedFindings.Count(f => KeyFindingsBuilder.Parse(f.Source, f.Finding).Rank <= 1)} critical/high.");

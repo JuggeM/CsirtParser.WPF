@@ -123,6 +123,10 @@ function New-Collection([string]$name, [string]$host_, [string]$day) {
     $lr   = Join-Path $root 'live_response'
     $epoch = [long]([datetimeoffset]::new([int]2026, 11, [int]$day, 12, 0, 0, [timespan]::Zero).ToUnixTimeSeconds())
     $d = [int]$day
+    # Host IP 192.0.2.(20+day); each host also copies the dropper to the next
+    # host (01->02 ... 05->01) so the case summary can show lateral movement.
+    $myIp   = "192.0.2.$(20 + $d)"
+    $nextIp = "192.0.2.$(21 + ($d % 5))"
 
     Write-LfFile "$sys\etc\hostname" @($host_)
 
@@ -158,6 +162,7 @@ function New-Collection([string]$name, [string]$host_, [string]$day) {
         '/tmp/.x.sh'
         'useradd -m -s /bin/bash support'
         'echo "support ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
+        "scp /tmp/.x.sh root@${nextIp}:/tmp/.x.sh"
         'history -c'
     )
 
@@ -209,6 +214,20 @@ function New-Collection([string]$name, [string]$host_, [string]$day) {
     )
 
     Write-LfFile "$lr\system\hostname.txt" @($host_)
+    Write-LfFile "$lr\network\ip_addr_show.txt" @(
+        '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000'
+        '    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00'
+        '    inet 127.0.0.1/8 scope host lo'
+        '       valid_lft forever preferred_lft forever'
+        '    inet6 ::1/128 scope host'
+        '       valid_lft forever preferred_lft forever'
+        '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000'
+        ('    link/ether 52:54:00:12:34:{0:x2} brd ff:ff:ff:ff:ff:ff' -f $d)
+        ('    inet {0}/24 brd 192.0.2.255 scope global eth0' -f $myIp)
+        '       valid_lft forever preferred_lft forever'
+        ('    inet6 fe80::5054:ff:fe12:34{0:x2}/64 scope link' -f $d)
+        '       valid_lft forever preferred_lft forever'
+    )
     Write-LfFile "$lr\system\timedatectl_status.txt" @(
         ("               Local time: Sun 2026-11-{0} 13:00:00 CET" -f $day)
         ("           Universal time: Sun 2026-11-{0} 12:00:00 UTC" -f $day)
@@ -229,8 +248,8 @@ function New-Collection([string]$name, [string]$host_, [string]$day) {
     Write-LfFile "$lr\network\netstat_-anp.txt" @(
         'Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name'
         'tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      812/sshd'
-        'tcp        0      0 192.0.2.20:44012        203.0.113.45:3333       ESTABLISHED 1502/.x.sh'
-        'tcp        0      0 192.0.2.20:22           203.0.113.45:51344      ESTABLISHED 1400/sshd: root'
+        ("tcp        0      0 {0}:44012        203.0.113.45:3333       ESTABLISHED 1502/.x.sh" -f $myIp)
+        ("tcp        0      0 {0}:22           203.0.113.45:51344      ESTABLISHED 1400/sshd: root" -f $myIp)
     )
 
     # ── systemd journal (UTC; host is CET, so 10:21 local = 09:21 UTC) ──
