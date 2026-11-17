@@ -19,6 +19,8 @@ namespace CsirtParser.WPF
         public MainWindow()
         {
             InitializeComponent();
+            // Keep case report edits made since the last export
+            Closing += (_, _) => (DataContext as ViewModels.MainViewModel)?.Report.SaveIfDirty();
         }
     }
 }

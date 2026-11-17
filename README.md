@@ -119,6 +119,27 @@ Severity levels used throughout:
 
 ---
 
+## Case report
+
+The **Case report** panel turns the processed output of every collection into a readable English summary for
+stakeholders, exported as a self-contained HTML file (**Open in browser** writes `Processed\CaseReport.html`;
+print it from the browser to get a PDF).
+
+- **Bottom line up front**: a draft written from the findings, which you can edit.
+- **Key findings**: each finding lists its host and IP, time, parser sources, and the collection's `QuickWins.txt`.
+- **Likelihood**: every finding gets a term from the PHIA probability yardstick (almost certain ≥95%, highly
+  likely 80–90%, likely 55–75%, realistic possibility 40–50%, …), plus the basis for it. The automatic value
+  is severity (critical 3, high 2, medium 1), +1 if another parser on the same host saw an indicator from the
+  finding, and +1 if it matches the case IOC list. A score of 4 or more is *almost certain*, 3 is *highly likely*
+  and 2 is *likely*. You can change any value, and the report marks the ones you changed.
+- **Also included**: a timeline, lateral movement between case hosts, a hosts table, indicators (from the case IOC
+  list and those seen on more than one host), intelligence gaps (yours plus ones detected from the data) and
+  next steps (`[x]` marks a step as done).
+
+Your edits are saved in `Processed\CaseReport.json` and kept when you re-run the parser.
+
+---
+
 ## Detection settings
 
 All thresholds and keyword lists are configurable in the UI without recompiling:

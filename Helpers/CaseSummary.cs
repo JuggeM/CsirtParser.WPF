@@ -43,20 +43,22 @@ namespace Helpers
         }
 
         // Collections processed by an older version have no host name; use the collection name
-        private static string HostLabel(HostData h) => h.Host == "?" ? h.Collection : h.Host;
+        public static string HostLabel(HostData h) => h.Host == "?" ? h.Collection : h.Host;
 
         private static string Fit(string s, int max) => s.Length > max ? s.Substring(0, max - 1) + "…" : s;
 
         private static string Clean(string s) => (s ?? string.Empty).Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
 
-        private sealed record HostData(string Host, string Collection, List<(string Source, string Finding)> Findings, bool HasFile,
-                                       List<string> Ips);
+        public sealed record HostData(string Host, string Collection, List<(string Source, string Finding)> Findings, bool HasFile,
+                                      List<string> Ips);
 
-        // ── Case summary ─────────────────────────────────────────────────
-        public static string? Write(string processedRoot, string caseName, string analyst)
+        /// <summary>One host's own IP seen in another case host's findings.</summary>
+        public sealed record LateralLink(string From, string To, string Ip, KeyFindingsBuilder.Finding? Evidence);
+
+        /// <summary>Every processed collection under <paramref name="processedRoot"/>, read from its Findings.tsv.</summary>
+        public static List<HostData> LoadHosts(string processedRoot)
         {
-            if (!Directory.Exists(processedRoot)) return null;
-
+            if (!Directory.Exists(processedRoot)) return new List<HostData>();
             var hosts = new List<HostData>();
             foreach (var dir in Directory.GetDirectories(processedRoot).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
             {
@@ -89,6 +91,14 @@ namespace Helpers
                 }
                 hosts.Add(new HostData(host, collection, list, true, ips));
             }
+            return hosts;
+        }
+
+        // ── Case summary ─────────────────────────────────────────────────
+        public static string? Write(string processedRoot, string caseName, string analyst)
+        {
+            if (!Directory.Exists(processedRoot)) return null;
+            var hosts = LoadHosts(processedRoot);
             if (hosts.Count == 0) return null;
 
             var sb = new StringBuilder();
@@ -156,41 +166,14 @@ namespace Helpers
                 sb.AppendLine();
             }
 
-            // Which case host owns which address — an "IOC" IP that is another
-            // host in this case points at lateral movement, not an outside actor.
-            var ipOwner = new Dictionary<string, string>();
-            foreach (var h in hosts)
-                foreach (var ip in h.Ips)
-                    ipOwner.TryAdd(ip, h.Host);
-
-            // IOCs across hosts
-            var iocHosts = new Dictionary<(string Kind, string Value), (HashSet<string> Hosts, HashSet<string> Sources)>();
-            foreach (var h in hosts.Where(h => h.HasFile))
-                foreach (var kv in KeyFindingsBuilder.ExtractIocs(h.Findings))
-                {
-                    if (!iocHosts.TryGetValue(kv.Key, out var e))
-                        iocHosts[kv.Key] = e = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>());
-                    e.Hosts.Add(h.Host);
-                    e.Sources.UnionWith(kv.Value);
-                }
-
-            // Case hosts whose own IP shows up in another host's findings
-            var lateral = iocHosts
-                .Where(k => k.Key.Kind == "IP" && ipOwner.ContainsKey(k.Key.Value))
-                .SelectMany(k => k.Value.Hosts
-                    .Where(seenOn => !seenOn.Equals(ipOwner[k.Key.Value], StringComparison.OrdinalIgnoreCase))
-                    .Select(seenOn => (From: seenOn, To: ipOwner[k.Key.Value], Ip: k.Key.Value)))
-                .OrderBy(x => x.From).ThenBy(x => x.To)
-                .ToList();
+            var ipOwner = IpOwners(hosts);
+            var iocHosts = IocsAcrossHosts(hosts);
+            var lateral = FindLateral(hosts, ipOwner, iocHosts);
             sb.AppendLine("########## LATERAL MOVEMENT (case hosts seen in other hosts' findings) ##########");
             if (lateral.Count == 0)
                 sb.AppendLine("  None found — no host's own IP appears in another host's findings.");
-            foreach (var (from, to, ip) in lateral)
+            foreach (var (from, to, ip, src) in lateral)
             {
-                var src = hosts.First(h => h.Host == from).Findings
-                    .Where(f => f.Finding.Contains(ip))
-                    .Select(f => KeyFindingsBuilder.Parse(f.Source, f.Finding))
-                    .OrderBy(f => f.Rank).FirstOrDefault();
                 var text = src == null ? "" : (src.Text.Length > 110 ? src.Text.Substring(0, 107) + "..." : src.Text);
                 sb.AppendLine($"  {from,-12} → {to,-12} ({ip})  [{src?.Source}] {text}");
             }
@@ -245,6 +228,50 @@ namespace Helpers
             var path = Path.Combine(processedRoot, SummaryFileName);
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
             return path;
+        }
+        /// <summary>Which case host owns which address. An "IOC" IP that is another
+        /// host in this case points at lateral movement, not an outside actor.</summary>
+        public static Dictionary<string, string> IpOwners(IEnumerable<HostData> hosts)
+        {
+            var ipOwner = new Dictionary<string, string>();
+            foreach (var h in hosts)
+                foreach (var ip in h.Ips)
+                    ipOwner.TryAdd(ip, h.Host);
+            return ipOwner;
+        }
+
+        /// <summary>IOC (kind, value) → hosts it was seen on and the sources it came from.</summary>
+        public static Dictionary<(string Kind, string Value), (HashSet<string> Hosts, HashSet<string> Sources)> IocsAcrossHosts(
+            IEnumerable<HostData> hosts)
+        {
+            var iocHosts = new Dictionary<(string Kind, string Value), (HashSet<string> Hosts, HashSet<string> Sources)>();
+            foreach (var h in hosts.Where(h => h.HasFile))
+                foreach (var kv in KeyFindingsBuilder.ExtractIocs(h.Findings))
+                {
+                    if (!iocHosts.TryGetValue(kv.Key, out var e))
+                        iocHosts[kv.Key] = e = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>());
+                    e.Hosts.Add(h.Host);
+                    e.Sources.UnionWith(kv.Value);
+                }
+            return iocHosts;
+        }
+
+        /// <summary>Case hosts whose own IP shows up in another host's findings, with the most severe finding as evidence.</summary>
+        public static List<LateralLink> FindLateral(List<HostData> hosts, Dictionary<string, string> ipOwner,
+            Dictionary<(string Kind, string Value), (HashSet<string> Hosts, HashSet<string> Sources)> iocHosts)
+        {
+            return iocHosts
+                .Where(k => k.Key.Kind == "IP" && ipOwner.ContainsKey(k.Key.Value))
+                .SelectMany(k => k.Value.Hosts
+                    .Where(seenOn => !seenOn.Equals(ipOwner[k.Key.Value], StringComparison.OrdinalIgnoreCase))
+                    .Select(seenOn => (From: seenOn, To: ipOwner[k.Key.Value], Ip: k.Key.Value)))
+                .OrderBy(x => x.From).ThenBy(x => x.To)
+                .Select(x => new LateralLink(x.From, x.To, x.Ip,
+                    hosts.First(h => h.Host == x.From).Findings
+                        .Where(f => f.Finding.Contains(x.Ip))
+                        .Select(f => KeyFindingsBuilder.Parse(f.Source, f.Finding))
+                        .OrderBy(f => f.Rank).FirstOrDefault()))
+                .ToList();
         }
     }
 }

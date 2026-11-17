@@ -124,7 +124,7 @@ namespace Helpers
             return lines;
         }
 
-        private static string NormalizeForDedup(string text)
+        public static string NormalizeForDedup(string text)
         {
             var t = text.ToLowerInvariant();
             t = Regex.Replace(t, @"\|\s*(cmd|exe):.*$", "");     // journal adds CMD/EXE tails

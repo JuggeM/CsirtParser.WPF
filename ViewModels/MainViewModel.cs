@@ -25,6 +25,9 @@ public class MainViewModel : ViewModelBase
 
     public ICommand NavigateCommand { get; }
 
+    // ── Case report panel ────────────────────────────────────────────
+    public CaseReportViewModel Report { get; }
+
     // ── Scan state ───────────────────────────────────────────────────
     private bool _isScanning;
     public bool IsScanning
@@ -135,10 +138,13 @@ public class MainViewModel : ViewModelBase
 
     public MainViewModel()
     {
+        Report = new CaseReportViewModel(Config);
         NavigateCommand = new RelayCommand(p =>
         {
+            if (ActivePanel == "Report") Report.SaveIfDirty();
             ActivePanel = p as string ?? ActivePanel;
             if (ActivePanel == "Iocs") EnsureIocsLoaded();
+            if (ActivePanel == "Report") Report.EnsureLoaded();
         });
         SaveIocsCommand = new RelayCommand(_ => SaveIocs());
         ImportIocsCommand = new RelayCommand(_ => BrowseIocFile());

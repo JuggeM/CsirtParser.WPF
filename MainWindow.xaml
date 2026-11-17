@@ -82,6 +82,11 @@
                                  Style="{StaticResource NavButton}"
                                  Command="{Binding NavigateCommand}"
                                  CommandParameter="Output"/>
+
+                    <RadioButton Content="Case report"
+                                 Style="{StaticResource NavButton}"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="Report"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -126,6 +131,13 @@
                                 <Setter Property="Content">
                                     <Setter.Value>
                                         <views:BodyFileView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="Report">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:CaseReportView DataContext="{Binding Report}"/>
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
