@@ -176,17 +176,58 @@ public class ParserOrchestrator
             progress?.Report((double)(i + 1) / total);
         }
 
-        // Case-level summary across every collection in the output folder
-        // (including ones skipped above as already processed).
+        // Case IOC search + case-level summary across every collection in the
+        // output folder (including ones skipped above as already processed).
+        FinishCase(_config.CaseFolderPath, outputBase, _config.CaseName, _config.AnalystName, _log);
+    }
+
+    /// <summary>
+    /// Case-wide steps that only read processed output, so they can also run
+    /// on their own ("Search IOCs" in the IOC panel) without re-parsing:
+    /// IOC list search, QuickWins.rtf refresh, CaseSummary.txt and
+    /// iocs_discovered.txt.
+    /// </summary>
+    public static IocSearch.CaseResult? FinishCase(string caseFolder, string outputBase,
+                                                   string caseName, string analyst, Action<string> log)
+    {
+        IocSearch.CaseResult? result = null;
         try
         {
-            var summary = CaseSummary.Write(outputBase, _config.CaseName, _config.AnalystName);
-            if (summary != null) _log($"Case summary written: {summary}");
+            result = IocSearch.SearchCase(caseFolder, outputBase, log);
+            if (result.IocCount > 0)
+            {
+                log($"IOC search: {result.IocsHit} of {result.IocCount} case IOC(s) seen, on " +
+                    $"{result.CollectionsWithHits} of {result.CollectionsSearched} collection(s).");
+                foreach (var dir in Directory.GetDirectories(outputBase))
+                    if (File.Exists(Path.Combine(dir, IocSearch.HitsFileName)))
+                        try { QuickWinsRtfConverter.Convert(dir); } catch { /* .txt is still correct */ }
+            }
         }
         catch (Exception ex)
         {
-            _log($"[WARN] Case summary failed: {ex.Message}");
+            log($"[WARN] IOC search failed: {ex.Message}");
         }
+
+        try
+        {
+            var summary = CaseSummary.Write(outputBase, caseName, analyst);
+            if (summary != null) log($"Case summary written: {summary}");
+        }
+        catch (Exception ex)
+        {
+            log($"[WARN] Case summary failed: {ex.Message}");
+        }
+
+        try
+        {
+            int n = IocSearch.WriteDiscovered(caseFolder, outputBase);
+            if (n > 0) log($"{n} discovered IOC(s) not yet in the case IOC list: {Path.Combine(outputBase, CaseIocs.DiscoveredFileName)}");
+        }
+        catch (Exception ex)
+        {
+            log($"[WARN] Discovered IOC list failed: {ex.Message}");
+        }
+        return result;
     }
 
     // ── Processed-state check ────────────────────────────────────────

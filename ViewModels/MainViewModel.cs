@@ -97,9 +97,53 @@ public class MainViewModel : ViewModelBase
     // ── Cancellation ─────────────────────────────────────────────────
     private CancellationTokenSource? _cts;
 
+    // ── Case IOC list (<case>\iocs.txt) ──────────────────────────────
+    private string _iocText = string.Empty;
+    private bool _iocDirty;
+    private string? _iocLoadedFor;
+
+    /// <summary>Editable IOC list text; parsed live for the preview line.</summary>
+    public string IocText
+    {
+        get => _iocText;
+        set
+        {
+            if (SetField(ref _iocText, value))
+            {
+                _iocDirty = true;
+                UpdateIocPreview();
+            }
+        }
+    }
+
+    private string _iocPreview = "No IOCs yet — paste a list above.";
+    public string IocPreview { get => _iocPreview; private set => SetField(ref _iocPreview, value); }
+
+    private string _iocRejected = string.Empty;
+    public string IocRejected { get => _iocRejected; private set => SetField(ref _iocRejected, value); }
+
+    private string _iocStatus = string.Empty;
+    public string IocStatus { get => _iocStatus; private set => SetField(ref _iocStatus, value); }
+
+    private string _discoveredLabel = "Load discovered";
+    public string DiscoveredLabel { get => _discoveredLabel; private set => SetField(ref _discoveredLabel, value); }
+
+    public ICommand SaveIocsCommand { get; }
+    public ICommand ImportIocsCommand { get; }
+    public ICommand LoadDiscoveredCommand { get; }
+    public ICommand SearchIocsCommand { get; }
+
     public MainViewModel()
     {
-        NavigateCommand = new RelayCommand(p => ActivePanel = p as string ?? ActivePanel);
+        NavigateCommand = new RelayCommand(p =>
+        {
+            ActivePanel = p as string ?? ActivePanel;
+            if (ActivePanel == "Iocs") EnsureIocsLoaded();
+        });
+        SaveIocsCommand = new RelayCommand(_ => SaveIocs());
+        ImportIocsCommand = new RelayCommand(_ => BrowseIocFile());
+        LoadDiscoveredCommand = new RelayCommand(_ => LoadDiscovered());
+        SearchIocsCommand = new RelayCommand(_ => _ = SearchIocsAsync(), _ => CanRun);
         RunCommand = new RelayCommand(_ => _ = RunParserAsync(), _ => CanRun);
         CancelCommand = new RelayCommand(_ => RequestCancel(), _ => CanCancel);
         BrowseCommand = new RelayCommand(BrowseForFolder);
@@ -162,7 +206,172 @@ public class MainViewModel : ViewModelBase
             }
 
             OnPropertyChanged(nameof(Config));
+            _iocLoadedFor = null;
+            EnsureIocsLoaded(force: true);
             _ = ScanForCollections();
+        }
+    }
+
+    // ── Case IOC list ────────────────────────────────────────────────
+    private bool HasCase => !string.IsNullOrWhiteSpace(Config.CaseFolderPath) && Directory.Exists(Config.CaseFolderPath);
+
+    /// <summary>Loads iocs.txt for the current case (once per case; never over unsaved edits unless forced).</summary>
+    private void EnsureIocsLoaded(bool force = false)
+    {
+        if (!HasCase) { IocStatus = "Choose a case folder first (Case setup)."; return; }
+        if (!force && PathEqualsSafe(_iocLoadedFor, Config.CaseFolderPath)) { RefreshDiscoveredLabel(); return; }
+        if (!force && _iocDirty && _iocLoadedFor != null) return;
+
+        var path = Helpers.CaseIocs.PathFor(Config.CaseFolderPath);
+        _iocText = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        OnPropertyChanged(nameof(IocText));
+        _iocDirty = false;
+        _iocLoadedFor = Config.CaseFolderPath;
+        UpdateIocPreview();
+        IocStatus = File.Exists(path) ? $"Loaded {path}" : $"No IOC list yet for this case — it will be saved to {path}";
+        RefreshDiscoveredLabel();
+    }
+
+    private static bool PathEqualsSafe(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) && PathEquals(a, b);
+
+    private void UpdateIocPreview()
+    {
+        var (iocs, rejected) = Helpers.CaseIocs.Parse(_iocText);
+        IocPreview = iocs.Count == 0 ? "No IOCs recognised yet." : Helpers.CaseIocs.Summary(iocs);
+        IocRejected = rejected.Count == 0 ? string.Empty
+            : $"{rejected.Count} line(s) without an IOC (dropped on save): " +
+              string.Join("  |  ", rejected.Take(5)) + (rejected.Count > 5 ? "  | …" : "") +
+              "   — user names and bare file names need a prefix: user:alice  file:x.sh";
+    }
+
+    private void RefreshDiscoveredLabel()
+    {
+        int n = 0;
+        if (HasCase)
+        {
+            var p = Path.Combine(Config.ResolveOutputPath(), Helpers.CaseIocs.DiscoveredFileName);
+            if (File.Exists(p))
+                n = Helpers.CaseIocs.Parse(File.ReadAllText(p)).Iocs.Count;
+        }
+        DiscoveredLabel = n > 0 ? $"Load discovered ({n})" : "Load discovered";
+    }
+
+    /// <summary>Saves the parsed, re-fanged, de-duplicated list. Returns false when there is no case.</summary>
+    private bool SaveIocs()
+    {
+        if (!HasCase) { IocStatus = "Choose a case folder first (Case setup)."; return false; }
+        var (iocs, rejected) = Helpers.CaseIocs.Parse(_iocText);
+        try
+        {
+            Helpers.CaseIocs.Save(Config.CaseFolderPath, iocs, Config.CaseName);
+        }
+        catch (Exception ex)
+        {
+            IocStatus = $"Could not save: {ex.Message}";
+            return false;
+        }
+        _iocText = Helpers.CaseIocs.Format(iocs, Config.CaseName);
+        OnPropertyChanged(nameof(IocText));
+        _iocDirty = false;
+        _iocLoadedFor = Config.CaseFolderPath;
+        UpdateIocPreview();
+        IocStatus = $"Saved {iocs.Count} IOC(s) to {Helpers.CaseIocs.PathFor(Config.CaseFolderPath)}" +
+                    (rejected.Count > 0 ? $" — {rejected.Count} line(s) without an IOC dropped." : ".");
+        return true;
+    }
+
+    private void BrowseIocFile()
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import IOCs",
+            Filter = "IOC lists (*.txt;*.csv;*.tsv;*.ioc)|*.txt;*.csv;*.tsv;*.ioc|All files (*.*)|*.*",
+            Multiselect = true
+        };
+        if (dlg.ShowDialog() == true)
+            foreach (var f in dlg.FileNames) ImportIocFile(f);
+    }
+
+    /// <summary>Appends the IOCs found in a file (txt, CSV/MISP export, …) to the list.</summary>
+    public void ImportIocFile(string path)
+    {
+        try
+        {
+            var (iocs, rejected) = Helpers.CaseIocs.Parse(File.ReadAllText(path));
+            if (iocs.Count == 0) { IocStatus = $"No IOCs found in {Path.GetFileName(path)}."; return; }
+            AppendIocBlock($"imported from {Path.GetFileName(path)}", iocs.Select(i => i.ToLine()));
+            IocStatus = $"Imported {iocs.Count} IOC(s) from {Path.GetFileName(path)}" +
+                        (rejected.Count > 0 ? $" ({rejected.Count} line(s) without an IOC skipped)" : "") +
+                        " — review, then Save.";
+        }
+        catch (Exception ex)
+        {
+            IocStatus = $"Import failed: {ex.Message}";
+        }
+    }
+
+    private void LoadDiscovered()
+    {
+        if (!HasCase) { IocStatus = "Choose a case folder first (Case setup)."; return; }
+        var p = Path.Combine(Config.ResolveOutputPath(), Helpers.CaseIocs.DiscoveredFileName);
+        if (!File.Exists(p)) { IocStatus = "No discovered IOCs yet — run the parser first."; return; }
+
+        var current = new HashSet<string>(Helpers.CaseIocs.Parse(_iocText).Iocs.Select(i => i.Value), StringComparer.OrdinalIgnoreCase);
+        var lines = File.ReadAllLines(p)
+            .Where(l => !string.IsNullOrWhiteSpace(l) && !l.TrimStart().StartsWith("#"))
+            .Where(l => Helpers.CaseIocs.Parse(l).Iocs.Any(i => !current.Contains(i.Value)))
+            .ToList();
+        if (lines.Count == 0) { IocStatus = "All discovered IOCs are already in the list."; return; }
+        AppendIocBlock("discovered by the parser — delete lines you don't trust, then Save", lines);
+        IocStatus = $"Added {lines.Count} discovered IOC(s) at the bottom — review them, then Save and Search.";
+    }
+
+    private void AppendIocBlock(string title, IEnumerable<string> lines)
+    {
+        var sb = new System.Text.StringBuilder(_iocText.TrimEnd());
+        if (sb.Length > 0) sb.AppendLine().AppendLine();
+        sb.AppendLine($"# ── {title} ──");
+        foreach (var l in lines) sb.AppendLine(l);
+        IocText = sb.ToString();
+    }
+
+    private async Task SearchIocsAsync()
+    {
+        if (_iocDirty && !SaveIocs()) return;
+        if (!HasCase) return;
+        var outputBase = Config.ResolveOutputPath();
+        if (!Directory.Exists(outputBase))
+        {
+            IocStatus = "Nothing processed yet — run the parser first; it searches the IOC list automatically.";
+            return;
+        }
+
+        IsRunning = true;
+        IocStatus = "Searching processed output…";
+        try
+        {
+            Log("IOC search started (processed output only — no re-parse).", LogLevel.Info);
+            var result = await Task.Run(() => Services.ParserOrchestrator.FinishCase(
+                Config.CaseFolderPath, outputBase, Config.CaseName, Config.AnalystName,
+                m => Log(m, m.StartsWith("[WARN]") ? LogLevel.Warning : LogLevel.Info)));
+            IocStatus = result == null || result.IocCount == 0
+                ? "The IOC list is empty — previous hit sections were removed."
+                : result.IocsHit == 0
+                    ? $"None of the {result.IocCount} IOC(s) were seen in {result.CollectionsSearched} collection(s)."
+                    : $"{result.IocsHit} of {result.IocCount} IOC(s) seen on {result.CollectionsWithHits} of {result.CollectionsSearched} collection(s): " +
+                      string.Join(", ", result.HitValues.Take(6)) + (result.HitValues.Count > 6 ? ", …" : "") +
+                      "  → CASE IOC HITS at the top of QuickWins.txt and in CaseSummary.txt";
+            Log("IOC search done.", LogLevel.Success);
+        }
+        catch (Exception ex)
+        {
+            IocStatus = $"IOC search failed: {ex.Message}";
+        }
+        finally
+        {
+            IsRunning = false;
+            RefreshDiscoveredLabel();
         }
     }
 
@@ -363,6 +572,10 @@ public class MainViewModel : ViewModelBase
             Log($"Analyst: {Config.AnalystName}", LogLevel.Info);
             Log($"Folder: {Config.CaseFolderPath}", LogLevel.Info);
 
+            // Unsaved edits in the IOC panel are used for this run
+            if (_iocDirty && HasCase && SaveIocs())
+                Log("IOC list saved (unsaved edits in the IOC panel).", LogLevel.Info);
+
             // Check 1 always runs first: extract anything in Upload\ that is
             // not yet (fully) in Decompressed\. Check 2 (already processed)
             // happens per collection inside the orchestrator.
@@ -390,6 +603,7 @@ public class MainViewModel : ViewModelBase
         {
             IsRunning = false;
             Progress = 0;   // reset bar after run finishes
+            RefreshDiscoveredLabel();
         }
     }
 

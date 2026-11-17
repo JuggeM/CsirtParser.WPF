@@ -1,0 +1,73 @@
+<UserControl x:Class="CsirtParser.WPF.Views.IocView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <TextBlock Text="Case IOCs" Style="{StaticResource SectionTitle}"/>
+
+        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,10">
+            Paste IOCs straight from a ticket, mail or threat report — one or many per line, separated by
+            spaces, commas or semicolons. Defanged values (hxxp, [.], [:]) are fixed automatically and the
+            type is detected. Text after " #" is kept as a comment. User names and bare file names need a
+            prefix: user:alice, file:x.sh. You can also drop .txt / .csv files (e.g. a MISP export) on the box.
+        </TextBlock>
+
+        <TextBox x:Name="IocBox"
+                 Text="{Binding IocText, UpdateSourceTrigger=PropertyChanged, Delay=300}"
+                 AcceptsReturn="True" AcceptsTab="False"
+                 TextWrapping="NoWrap"
+                 FontFamily="Consolas" FontSize="12"
+                 Height="300"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto"
+                 AllowDrop="True"
+                 PreviewDragOver="IocBox_PreviewDragOver"
+                 PreviewDrop="IocBox_PreviewDrop"/>
+
+        <!-- Live preview -->
+        <Border Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                CornerRadius="4" Padding="10,6" Margin="0,8,0,0">
+            <StackPanel>
+                <TextBlock Text="{Binding IocPreview}" FontWeight="Medium"/>
+                <TextBlock Text="{Binding IocRejected}" TextWrapping="Wrap"
+                           Foreground="{StaticResource WarningBrush}" Margin="0,4,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <Trigger Property="Text" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+        </Border>
+
+        <!-- Actions -->
+        <WrapPanel Margin="0,12,0,0">
+            <Button Content="Save to case" Style="{StaticResource PrimaryButton}"
+                    Command="{Binding SaveIocsCommand}" Padding="14,6" Margin="0,0,8,8"
+                    ToolTip="Writes the cleaned list to &lt;case&gt;\iocs.txt"/>
+            <Button Content="Search processed output" Style="{StaticResource StandardButton}"
+                    Command="{Binding SearchIocsCommand}" Padding="14,6" Margin="0,0,8,8"
+                    ToolTip="Saves, then searches every processed collection (normalized logs, body file, live response) without re-parsing. Results: CASE IOC HITS at the top of QuickWins.txt and a host × IOC table in CaseSummary.txt."/>
+            <Button Content="Import file…" Style="{StaticResource StandardButton}"
+                    Command="{Binding ImportIocsCommand}" Padding="14,6" Margin="0,0,8,8"
+                    ToolTip="Adds the IOCs found in .txt / .csv / MISP exports to the list"/>
+            <Button Content="{Binding DiscoveredLabel}" Style="{StaticResource StandardButton}"
+                    Command="{Binding LoadDiscoveredCommand}" Padding="14,6" Margin="0,0,8,8"
+                    ToolTip="Adds IOCs the parser found in findings (iocs_discovered.txt in the current output folder) that are not in your list yet. Review, then Save and Search to find every other place they show up."/>
+        </WrapPanel>
+
+        <TextBlock Text="{Binding IocStatus}" TextWrapping="Wrap"
+                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+
+        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="11" Margin="0,14,0,0">
+            Matching is exact: 1.2.3.4 does not hit 11.2.3.45, a domain also hits its subdomains,
+            a CIDR (10.0.0.0/8) hits every address in it, /tmp/x does not hit /var/tmp/x.
+            Running the parser also searches the list automatically.
+        </TextBlock>
+    </StackPanel>
+</UserControl>

@@ -194,6 +194,24 @@ namespace Helpers
 
             File.WriteAllText(path, text, new UTF8Encoding(false));
         }
+        /// <summary>Removes a "########## title ##########" section (up to the next section), if present.</summary>
+        public static void RemoveSection(string outputDir, string title)
+        {
+            var path = QuickWinsPath(outputDir);
+            if (!File.Exists(path)) return;
+            var text = File.ReadAllText(path, new UTF8Encoding(false));
+            string marker = $"########## {title} ##########";
+            int idx = text.IndexOf(marker, StringComparison.Ordinal);
+            if (idx < 0) return;
+            int lineStart = text.LastIndexOf('\n', idx);
+            lineStart = lineStart < 0 ? 0 : lineStart + 1;
+            int next = text.IndexOf("##########", idx + marker.Length, StringComparison.Ordinal);
+            int end = next >= 0 ? text.LastIndexOf('\n', next) + 1 : text.Length;
+            if (end <= lineStart) end = next >= 0 ? next : text.Length;
+            text = text.Substring(0, lineStart) + text.Substring(end);
+            File.WriteAllText(path, text, new UTF8Encoding(false));
+        }
+
         /// <summary>
         /// Inserts the global summary section immediately after the Timeline Coverage block.
         /// Re-entrant: removes any existing global block before re-inserting.
@@ -234,6 +252,8 @@ namespace Helpers
                        blockEnd < text.Length && text[blockEnd - 1] == '\n')
                     blockEnd--;
                 blockEnd++;
+                // Section was the last one in the file: blockEnd ran one past the end
+                blockEnd = Math.Min(blockEnd, text.Length);
                 text = text.Substring(0, lineStart) + text.Substring(blockEnd);
             }
 

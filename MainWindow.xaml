@@ -68,6 +68,11 @@
                                  Command="{Binding NavigateCommand}"
                                  CommandParameter="Detection"/>
 
+                    <RadioButton Content="IOCs"
+                                 Style="{StaticResource NavButton}"
+                                 Command="{Binding NavigateCommand}"
+                                 CommandParameter="Iocs"/>
+
                     <RadioButton Content="Body file"
                                  Style="{StaticResource NavButton}"
                                  Command="{Binding NavigateCommand}"
@@ -107,6 +112,13 @@
                                 <Setter Property="Content">
                                     <Setter.Value>
                                         <views:DetectionView/>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ActivePanel}" Value="Iocs">
+                                <Setter Property="Content">
+                                    <Setter.Value>
+                                        <views:IocView/>
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>

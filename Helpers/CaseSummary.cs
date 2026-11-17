@@ -42,6 +42,11 @@ namespace Helpers
             File.WriteAllText(Path.Combine(outputDir, FindingsFileName), sb.ToString(), new UTF8Encoding(false));
         }
 
+        // Collections processed by an older version have no host name; use the collection name
+        private static string HostLabel(HostData h) => h.Host == "?" ? h.Collection : h.Host;
+
+        private static string Fit(string s, int max) => s.Length > max ? s.Substring(0, max - 1) + "…" : s;
+
         private static string Clean(string s) => (s ?? string.Empty).Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
 
         private sealed record HostData(string Host, string Collection, List<(string Source, string Finding)> Findings, bool HasFile,
@@ -112,6 +117,44 @@ namespace Helpers
                     : $"  {h.Host,-16} {"?",-18} {"?",4} {"?",4} {"?",4}  {h.Collection}  (processed by an older version — delete its folder in Processed\\ to include it)");
             }
             sb.AppendLine();
+
+            // Analyst IOC list (iocs.txt) hits: IOC × host
+            var hitRows = hosts
+                .Select(h => (Host: HostLabel(h), Rows: IocSearch.ReadHitsFile(Path.Combine(processedRoot, h.Collection))))
+                .ToList();
+            bool searched = hosts.Any(h => File.Exists(Path.Combine(processedRoot, h.Collection, IocSearch.HitsFileName)));
+            if (searched)
+            {
+                sb.AppendLine("########## CASE IOC HITS (analyst IOC list, iocs.txt) ##########");
+                var byIoc = hitRows
+                    .SelectMany(x => x.Rows.Select(r => (x.Host, r)))
+                    .GroupBy(x => (x.r.Kind, x.r.Value))
+                    .Select(g => (g.Key.Kind, g.Key.Value,
+                                  First: g.Where(x => x.r.First.HasValue).Select(x => x.r.First).Min(),
+                                  PerHost: g.GroupBy(x => x.Host, StringComparer.OrdinalIgnoreCase)
+                                            .ToDictionary(h => h.Key, h => h.Sum(x => x.r.Count), StringComparer.OrdinalIgnoreCase),
+                                  Comment: g.Select(x => x.r.Comment).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c)) ?? ""))
+                    .OrderByDescending(x => x.PerHost.Count)
+                    .ThenBy(x => x.First ?? DateTime.MaxValue)
+                    .ToList();
+                if (byIoc.Count == 0)
+                    sb.AppendLine("  No case IOC was seen on any host.");
+                else
+                {
+                    var hostCols = hitRows.Where(x => x.Rows.Count > 0 || hosts.Any(h => h.HasFile && HostLabel(h) == x.Host))
+                        .Select(x => x.Host).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    sb.AppendLine($"  {byIoc.Count} case IOC(s) seen. Cells = hit count per host, · = not seen. First seen = earliest hit on any host.");
+                    sb.AppendLine($"  {"Kind",-7} {"IOC",-36} {"First seen (UTC)",-19} " + string.Join(" ", hostCols.Select(c => Fit(c, 8).PadLeft(8))));
+                    foreach (var r in byIoc)
+                    {
+                        var cells = hostCols.Select(c => (r.PerHost.TryGetValue(c, out var n) ? n.ToString() : "·").PadLeft(8));
+                        var first = r.First?.ToString("yyyy-MM-dd HH:mm:ss") ?? "(no time)";
+                        var comment = string.IsNullOrWhiteSpace(r.Comment) ? "" : $"   # {r.Comment}";
+                        sb.AppendLine($"  {r.Kind,-7} {Fit(r.Value, 36),-36} {first,-19} {string.Join(" ", cells)}{comment}");
+                    }
+                }
+                sb.AppendLine();
+            }
 
             // Which case host owns which address — an "IOC" IP that is another
             // host in this case points at lateral movement, not an outside actor.
