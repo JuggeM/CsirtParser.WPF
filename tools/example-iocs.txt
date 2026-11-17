@@ -1,0 +1,34 @@
+# Example IOC list for CSIRT UAC Parser
+# Paste into the IOCs panel, use "Import file…", or copy to <case>\iocs.txt.
+# Values match the synthetic test case from tools\New-TestCase.ps1.
+#
+# Rules: one or more IOCs per line (space, comma or semicolon separated),
+# text after " #" is a comment, defanged values are fixed automatically.
+
+# ── From ticket INC-4711 (defanged, as threat intel usually sends it) ──
+hxxp://203.0.113[.]45/x.sh                 # payload download URL
+203.0.113[.]45:4444, 203.0.113.45:3333     # C2 / reverse shell / mining pool
+hxxp://203[.]0[.]113[.]45/update.sh        # second-stage script in crontab
+
+# ── Scanner / attacker infrastructure ──
+203.0.113.99                               # Nikto, sqlmap, WPScan
+198.51.100.0/24                            # whole range from the provider's abuse report
+2001:db8:dead:beef::45                     # IPv6 seen in firewall logs
+
+# ── Domains (subdomains match too) ──
+evil-update[.]example                      # C2 domain from sandbox report
+pool.miner-example[.]net                   # mining pool
+
+# ── Hashes ──
+d41d8cd98f00b204e9800998ecf8427e           # MD5 of dropped file
+da39a3ee5e6b4b0d3255bfef95601890afd80709   # SHA1
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855   # SHA256
+
+# ── Files and paths ──
+/tmp/.x.sh                                 # dropper
+/dev/shm/.kworker                          # fake kernel thread
+file:img.php                               # webshell (bare file name needs file:)
+
+# ── Accounts and email ──
+user:support                               # backdoor account created by attacker
+phish[@]evil-update.example                # sender of the phishing mail
