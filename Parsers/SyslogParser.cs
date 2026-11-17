@@ -16,11 +16,11 @@ namespace Parsers
 
         // ── Regexes ───────────────────────────────────────────────────
         private static readonly Regex RgxIso = new(
-            @"^(?<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:\d{2}))\s+(?<host>\S+)\s+(?<daemon>[^\s:]+)(?:\[(?<pid>\d+)\])?:\s*(?<msg>.*)$",
+            @"^(?<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:\d{2}))\s+(?<host>\S+)\s+(?<daemon>[^\s:\[]+)(?:\[(?<pid>\d+)\])?:\s*(?<msg>.*)$",
             RegexOptions.Compiled);
 
         private static readonly Regex RgxClassic = new(
-            @"^(?<ts>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?<host>\S+)\s+(?<daemon>[^\s:]+)(?:\[(?<pid>\d+)\])?:\s*(?<msg>.*)$",
+            @"^(?<ts>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?<host>\S+)\s+(?<daemon>[^\s:\[]+)(?:\[(?<pid>\d+)\])?:\s*(?<msg>.*)$",
             RegexOptions.Compiled);
 
         private static readonly Regex RgxCronCmd = new(

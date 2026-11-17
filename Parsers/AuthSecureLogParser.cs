@@ -70,19 +70,30 @@ namespace Parsers
             return name.StartsWith("secure") ? "SECURE" : "AUTH";
         }
 
+        // Same header split as SyslogParser: "<ts> <host> <daemon>[pid]: <msg>".
+        // Anchored to the header so the colons in the timestamp are never taken
+        // as the "daemon:" separator, and daemons given as paths
+        // (/usr/sbin/cron[99]:) are kept.
+        private static readonly Regex RgxHeader = new(
+            @"^(?:\d{4}-\d{2}-\d{2}T\S+|\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?<host>\S+)\s+(?<daemon>[^\s:\[]+)(?:\[(?<pid>\d+)\])?:\s*(?<msg>.*)$",
+            RegexOptions.Compiled);
+
+        // Header without a "daemon:" part — host and the rest of the line.
+        private static readonly Regex RgxHostOnly = new(
+            @"^(?:\d{4}-\d{2}-\d{2}T\S+|\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?<host>\S+)\s+(?<rest>.*)$",
+            RegexOptions.Compiled);
+
         private static string ExtractHostname(string line)
         {
             if (string.IsNullOrWhiteSpace(line)) return string.Empty;
-            var iso = Regex.Match(line, @"^(?<ts>\d{4}-\d{2}-\d{2}T[^\s]+)\s+(?<host>\S+)\s+");
-            if (iso.Success) return iso.Groups["host"].Value;
-            var sys = Regex.Match(line, @"^\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?<host>\S+)\s+");
-            return sys.Success ? sys.Groups["host"].Value : string.Empty;
+            var m = RgxHostOnly.Match(line);
+            return m.Success ? m.Groups["host"].Value : string.Empty;
         }
 
         private static string ExtractDaemonName(string line)
         {
             if (string.IsNullOrWhiteSpace(line)) return null;
-            var m = Regex.Match(line, @"\s(?<daemon>[A-Za-z0-9_\-]+)(?:\[\d+\])?:\s");
+            var m = RgxHeader.Match(line);
             return m.Success ? m.Groups["daemon"].Value : null;
         }
 
@@ -124,12 +135,9 @@ namespace Parsers
         private static string ExtractMessage(string line)
         {
             if (string.IsNullOrWhiteSpace(line)) return string.Empty;
-            var m = Regex.Match(line, @"[A-Za-z0-9_\-]+(?:\[\d+\])?:\s*(?<msg>.*)$");
+            var m = RgxHeader.Match(line);
             if (m.Success) return m.Groups["msg"].Value.Trim();
-            m = Regex.Match(line, @"^\d{4}-\d{2}-\d{2}T[^\s]+\s+\S+\s+(?<rest>.*)$");
-            if (m.Success) return m.Groups["rest"].Value.Trim();
-            m = Regex.Match(line,
-                @"^\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+(?<rest>.*)$");
+            m = RgxHostOnly.Match(line);
             return m.Success ? m.Groups["rest"].Value.Trim() : line;
         }
 
