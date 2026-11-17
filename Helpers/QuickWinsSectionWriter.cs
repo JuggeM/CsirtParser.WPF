@@ -108,7 +108,9 @@ namespace Helpers
         private static string ShortName(string fileNameOrPath)
         {
             if (string.IsNullOrEmpty(fileNameOrPath)) return fileNameOrPath;
-            try { return Path.GetFileName(fileNameOrPath); }
+            // Relative labels ("apache2/access.log") are kept as given; only
+            // absolute paths are shortened to the file name.
+            try { return Path.IsPathRooted(fileNameOrPath) ? Path.GetFileName(fileNameOrPath) : fileNameOrPath; }
             catch { return fileNameOrPath; }
         }
     }

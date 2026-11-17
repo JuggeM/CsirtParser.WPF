@@ -1,51 +1,40 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Helpers
 {
     /// <summary>
-    /// Tracks web request patterns to detect:
-    ///   1. Brute-force attempts (many 401/403 on login endpoints from one IP)
-    ///   2. Potentially successful brute-force (failures followed by a 200/302
-    ///      on the same endpoint from the same IP)
+    /// Web login brute force, accumulated across all web log files of a collection.
+    ///
+    /// Counted as a failed attempt:
+    ///   â€¢ a POST to a login endpoint that is NOT a redirect â€” most web apps
+    ///     (WordPress included) answer a wrong password with 200 and the form again;
+    ///   â€¢ any 401/403 on a login or admin endpoint (HTTP basic auth, WAF denials).
+    /// Counted as a success:
+    ///   â€¢ a 302/303 answer to a login POST (the app redirects after a good login),
+    ///     or a 2xx on an endpoint that previously only returned 401/403.
+    /// xmlrpc.php POSTs are counted as attempts (system.multicall brute force)
+    /// but never as success, since they always return 200.
     /// </summary>
     public class WebBruteForceDetector
     {
         private readonly int _threshold;
-
-        // Per-IP tracking
         private readonly Dictionary<string, IpState> _states = new();
 
-        private static readonly HashSet<string> SuspiciousEndpoints = new(
-            StringComparer.OrdinalIgnoreCase)
-        {
-            // WordPress
-            "/wp-login.php", "/xmlrpc.php", "/wp-admin",
+        // Form login endpoints: POST = one password attempt
+        private static readonly Regex LoginPost = new(
+            @"/(?:wp-login\.php|xmlrpc\.php|login(?:\.php)?|signin|sign-in|logon|auth(?:/login|/session|/token)?|" +
+            @"user/login|account/login|admin/login|administrator/index\.php|session|oauth/token|api/(?:v\d+/)?(?:auth|login|token))(?:$|[/?#])",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-            // Generic login / admin panels
-            "/login", "/admin", "/user/login", "/auth/login", "/account/login",
-            "/dashboard", "/signin", "/cpanel", "/webmail", "/admin/login", "/adminpanel",
+        // Endpoints where 401/403 means a denied login (basic auth, admin panels)
+        private static readonly Regex ProtectedEndpoint = new(
+            @"/(?:wp-admin|admin|administrator|manager/html|phpmyadmin|adminer|webmin|cpanel|webmail|roundcube|zabbix|nagios|login|signin|api/)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-            // Application-specific
-            "/phpmyadmin", "/roundcube", "/adminer", "/manager/html",
-            "/joomla/administrator", "/typo3", "/drupal", "/zabbix", "/nagios",
-            "/openwebmail", "/webmin",
-
-            // API and token endpoints
-            "/api/auth", "/oauth/token", "/v1/login", "/auth/token", "/auth/session",
-
-            // SSH / web console paths
-            "/shell", "/console", "/ssh", "/remoteDesktop", "/term.cgi", "/webshell",
-
-            // Known exploit targets
-            "/.env", "/config.json", "/.git", "/actuator", "/debug"
-        };
-
-        /// <param name="threshold">
-        /// Number of denied requests per IP before flagging as brute-force.
-        /// Defaults to 10.
-        /// </param>
+        /// <param name="threshold">Failed attempts from one IP before it is reported (default 10).</param>
         public WebBruteForceDetector(int threshold = 10)
         {
             _threshold = threshold < 1 ? 10 : threshold;
@@ -54,96 +43,83 @@ namespace Helpers
         public void Track(string ip, string uri, string method,
                           string status, string agent, DateTime timestamp)
         {
-            if (!int.TryParse(status, out int statusCode)) return;
+            if (!int.TryParse(status, out int code)) return;
+            var path = (uri ?? string.Empty).Split('?')[0];
+            bool isPost = string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase);
+            bool loginPost = isPost && LoginPost.IsMatch(path);
+            bool isXmlRpc = path.EndsWith("xmlrpc.php", StringComparison.OrdinalIgnoreCase);
+            bool protectedHit = ProtectedEndpoint.IsMatch(path);
+            if (!loginPost && !protectedHit) return;
 
-            string uriLo = uri.ToLowerInvariant();
-            bool hitsEndpoint = SuspiciousEndpoints.Any(e => uriLo.Contains(e));
-            if (!hitsEndpoint) return;
+            if (!_states.TryGetValue(ip, out var s))
+                _states[ip] = s = new IpState();
 
-            if (!_states.TryGetValue(ip, out var state))
+            bool failed =
+                (loginPost && !(code is 301 or 302 or 303) && !(isXmlRpc && code >= 500))
+                || ((code is 401 or 403) && protectedHit);
+
+            if (failed)
             {
-                state = new IpState();
-                _states[ip] = state;
+                s.Failures++;
+                s.Endpoints.Add(path);
+                if (s.FirstFailure == default || timestamp < s.FirstFailure) s.FirstFailure = timestamp;
+                if (timestamp > s.LastFailure) s.LastFailure = timestamp;
+                if (!string.IsNullOrWhiteSpace(agent)) s.Agents.Add(agent);
+                return;
             }
 
-            bool isDenied = statusCode == 401 || statusCode == 403;
-            bool isSuccess = statusCode == 200 || statusCode == 302;
-
-            if (isDenied)
+            bool success = !isXmlRpc && s.Failures >= _threshold && s.SuccessAt == default && (
+                (loginPost && code is 302 or 303) ||
+                (code is >= 200 and < 300 && protectedHit && s.Endpoints.Contains(path)));
+            if (success)
             {
-                state.FailureCount++;
-                state.Uris.Add(uri);
-                if (state.FirstFailure == default) state.FirstFailure = timestamp;
-                state.LastFailure = timestamp;
-            }
-            else if (isSuccess && state.FailureCount >= _threshold)
-            {
-                // Success after enough failures on the same endpoint = suspicious
-                state.SuccessAfterFailure = true;
-                state.SuccessUri = uri;
-                state.SuccessStatus = statusCode;
-                state.SuccessTimestamp = timestamp;
+                s.SuccessAt = timestamp;
+                s.SuccessPath = path;
+                s.SuccessStatus = code;
+                s.FailuresBeforeSuccess = s.Failures;
             }
         }
 
+        /// <summary>Finished QuickWins finding lines ("[WEB] [SEVERITY] [time] â€¦").</summary>
         public List<string> GetFindings()
         {
-            var findings = new List<string>();
+            var findings = new List<(int Rank, string Line)>();
 
-            foreach (var (ip, state) in _states
-                .Where(kv => kv.Value.FailureCount >= _threshold)
-                .OrderByDescending(kv => kv.Value.FailureCount))
+            foreach (var (ip, s) in _states.Where(kv => kv.Value.Failures >= _threshold))
             {
-                string uriList = string.Join(", ",
-                    state.Uris.Distinct().Take(5));
-                if (state.Uris.Distinct().Count() > 5)
-                    uriList += $" … (+{state.Uris.Distinct().Count() - 5} more)";
+                var endpoints = string.Join(", ", s.Endpoints.Take(5)) +
+                                (s.Endpoints.Count > 5 ? $" (+{s.Endpoints.Count - 5} more)" : "");
+                var agent = s.Agents.Count == 0 ? "" : $" | user agent: {s.Agents.First()}" +
+                            (s.Agents.Count > 1 ? $" (+{s.Agents.Count - 1} more)" : "");
 
-                string timeRange = state.FirstFailure != default
-                    ? $"{state.FirstFailure:yyyy-MM-dd HH:mm:ss} \u2192 {state.LastFailure:yyyy-MM-dd HH:mm:ss} UTC"
-                    : "unknown time";
-
-                if (state.SuccessAfterFailure)
+                if (s.SuccessAt != default)
                 {
-                    // Potentially successful brute-force — highlight prominently
-                    findings.Add(
-                        $"[WEBLOG] [BRUTEFORCE] [POSSIBLE SUCCESS] " +
-                        $"IP {ip} — {state.FailureCount} failures [{timeRange}] " +
-                        $"then {state.SuccessStatus} on {state.SuccessUri} " +
-                        $"at {state.SuccessTimestamp:yyyy-MM-dd HH:mm:ss} UTC " +
-                        $"| Endpoints hit: {uriList}");
+                    findings.Add((0,
+                        $"[WEB] [CRITICAL] [{s.SuccessAt:yyyy-MM-dd HH:mm:ss} UTC] Web login brute force succeeded: " +
+                        $"{ip} got {s.SuccessStatus} on {s.SuccessPath} after {s.FailuresBeforeSuccess} failed attempt(s) " +
+                        $"since {s.FirstFailure:yyyy-MM-dd HH:mm:ss} UTC | endpoints: {endpoints}{agent}"));
                 }
                 else
                 {
-                    findings.Add(
-                        $"[WEBLOG] [BRUTEFORCE] " +
-                        $"IP {ip} — {state.FailureCount} denied requests [{timeRange}] " +
-                        $"| Endpoints: {uriList}");
+                    findings.Add((1,
+                        $"[WEB] [HIGH] [{s.FirstFailure:yyyy-MM-dd HH:mm:ss} â†’ {s.LastFailure:yyyy-MM-dd HH:mm:ss} UTC] " +
+                        $"Web login brute force: {ip} made {s.Failures} failed attempt(s), no success seen | endpoints: {endpoints}{agent}"));
                 }
             }
 
-            // Sort: possible successes first, then by failure count
-            findings.Sort((a, b) =>
-            {
-                bool aSucc = a.Contains("[POSSIBLE SUCCESS]");
-                bool bSucc = b.Contains("[POSSIBLE SUCCESS]");
-                if (aSucc != bSucc) return aSucc ? -1 : 1;
-                return 0;
-            });
-
-            return findings;
+            return findings.OrderBy(f => f.Rank).ThenBy(f => f.Line, StringComparer.Ordinal).Select(f => f.Line).ToList();
         }
 
         private sealed class IpState
         {
-            public int FailureCount { get; set; }
-            public DateTime FirstFailure { get; set; }
-            public DateTime LastFailure { get; set; }
-            public HashSet<string> Uris { get; } = new(StringComparer.OrdinalIgnoreCase);
-            public bool SuccessAfterFailure { get; set; }
-            public string SuccessUri { get; set; }
-            public int SuccessStatus { get; set; }
-            public DateTime SuccessTimestamp { get; set; }
+            public int Failures;
+            public DateTime FirstFailure, LastFailure;
+            public HashSet<string> Endpoints { get; } = new(StringComparer.OrdinalIgnoreCase);
+            public HashSet<string> Agents { get; } = new(StringComparer.Ordinal);
+            public DateTime SuccessAt;
+            public string SuccessPath = "";
+            public int SuccessStatus;
+            public int FailuresBeforeSuccess;
         }
     }
 }

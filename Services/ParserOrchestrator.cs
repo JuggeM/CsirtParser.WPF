@@ -1206,8 +1206,10 @@ public class ParserOrchestrator
         var allCandidates = WebLogParser.DiscoverWebLogFiles(rootPath);
         var webLogs = allCandidates
             .Where(p => Path.GetFileName(p).IndexOf("access",
-                StringComparison.OrdinalIgnoreCase) >= 0)
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                            StringComparison.OrdinalIgnoreCase) >= 0
+                        || WebLogParser.IsErrorLogName(p))
+            .OrderBy(p => WebLogParser.IsErrorLogName(p))   // access logs first
+            .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         fileCounts[logKey] = webLogs.Count;
@@ -1215,7 +1217,7 @@ public class ParserOrchestrator
 
         if (webLogs.Count == 0)
         {
-            _log("WEB: no access logs discovered.");
+            _log("WEB: no access or error logs discovered.");
             return;
         }
 
@@ -1242,14 +1244,25 @@ public class ParserOrchestrator
                 parsePath = tempPath;
             }
 
-            _log($"Parsing WEB {Path.GetFileName(logFile)}");
+            _log($"Parsing WEB {Path.GetRelativePath(rootPath, logFile)}");
+
+            // A decompressed .gz is parsed from a temp path; keep apache2/nginx as daemon
+            var lf = logFile.ToLowerInvariant();
+            parser.DaemonOverride = tempPath == null ? null
+                : lf.Contains("nginx") ? "nginx"
+                : lf.Contains("apache") || lf.Contains("httpd") ? "apache2" : "web";
+            parser.IsErrorLog = WebLogParser.IsErrorLogName(logFile);
+
+            // Label = path below /var/log (or /var/www), e.g. "apache2/access.log"
+            // vs "nginx/access.log" — the bare file name was ambiguous.
+            var label = WebLogLabel(rootPath, logFile);
 
             var (findings, patterns, fileFirst, fileLast) = parser.ParseFile(parsePath);
 
-            perFileTimestamps[logKey][Path.GetFileName(logFile)] = (fileFirst, fileLast);
+            perFileTimestamps[logKey][label] = (fileFirst, fileLast);
 
             if (findings.Count > 0)
-                perFileFindings.Add((logFile, findings));
+                perFileFindings.Add((label, findings));
 
             allFindings.AddRange(findings);
 
@@ -1264,15 +1277,17 @@ public class ParserOrchestrator
                 File.Delete(tempPath);
         }
 
-        // Brute-force findings from shared detector (covers all files combined)
-        // Fix: build bruteList separately — tuple value types can't be mutated via First()
-        var bruteFindings = bfd.GetFindings();
-        var bruteList = new List<string>();
-        foreach (var bf in bruteFindings)
+        parser.DaemonOverride = null;
+        parser.IsErrorLog = null;
+
+        // Brute-force findings from the shared detector (covers all files combined);
+        // they come back as finished "[WEB] [SEVERITY] [time] …" lines.
+        var bruteList = bfd.GetFindings();
+        allFindings.AddRange(bruteList);
+        foreach (var bf in bruteList)
         {
-            string bfLine = $"[WEB] [BRUTEFORCE] {bf.Replace("[WEBLOG] [BRUTEFORCE] ", "")}";
-            allFindings.Add(bfLine);
-            bruteList.Add(bfLine);
+            var label = bf.Contains("succeeded") ? "Web brute force succeeded" : "Web brute force";
+            combinedPatterns[label] = combinedPatterns.TryGetValue(label, out var n) ? n + 1 : 1;
         }
 
         // Write ONE combined section — always write if any files were parsed,
@@ -1291,6 +1306,17 @@ public class ParserOrchestrator
         patternCounts[logKey] = combinedPatterns;
         firstLastSeen[logKey] = (first, last);
         ipLogs[logKey] = new Dictionary<string, int>(combinedIPs);
+    }
+
+    private static string WebLogLabel(string rootPath, string logFile)
+    {
+        var rel = Path.GetRelativePath(rootPath, logFile).Replace('\\', '/');
+        foreach (var anchor in new[] { "var/log/", "var/www/" })
+        {
+            int i = rel.IndexOf(anchor, StringComparison.OrdinalIgnoreCase);
+            if (i >= 0) return rel.Substring(i + anchor.Length);
+        }
+        return Path.GetFileName(logFile);
     }
 
     // ── Body file ────────────────────────────────────────────────────

