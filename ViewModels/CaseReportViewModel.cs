@@ -13,7 +13,7 @@ namespace CsirtParser.WPF.ViewModels;
 /// The "Case report" panel: an editable, exportable case summary built from
 /// the processed output. Analyst edits (title, bottom line, per-finding
 /// likelihood, gaps, next steps) are kept in Processed\CaseReport.json so they
-/// survive re-runs; the export is a self-contained CaseReport.html.
+/// survive re-runs; exports are a self-contained HTML page, RTF or Word (.docx).
 /// </summary>
 public class CaseReportViewModel : ViewModelBase
 {
@@ -28,7 +28,7 @@ public class CaseReportViewModel : ViewModelBase
         _config = config;
         RefreshCommand = new RelayCommand(_ => Refresh());
         DraftBlufCommand = new RelayCommand(_ => { if (_data != null) Bluf = CaseReport.DraftBluf(_data); }, _ => _data != null);
-        ExportCommand = new RelayCommand(_ => Export(), _ => _data != null);
+        ExportCommand = new RelayCommand(p => Export(p as string ?? "html"), _ => _data != null);
         OpenCommand = new RelayCommand(_ => OpenInBrowser(), _ => _data != null);
         SaveCommand = new RelayCommand(_ => Save(), _ => _data != null);
     }
@@ -214,14 +214,31 @@ public class CaseReportViewModel : ViewModelBase
     /// <summary>Saves unsaved edits; called when leaving the panel.</summary>
     public void SaveIfDirty() { if (_dirty) Save(); }
 
-    private string? WriteHtml(string path)
+    /// <summary>Writes the report in the format the file extension names (.html, .rtf, .docx).</summary>
+    private string? WriteReport(string path)
     {
         if (_data == null) return null;
         Save();
         try
         {
-            File.WriteAllText(path, CaseReport.RenderHtml(_data, _notes), new UTF8Encoding(false));
+            switch (Path.GetExtension(path).ToLowerInvariant())
+            {
+                case ".rtf":
+                    File.WriteAllText(path, CaseReportRtf.Render(_data, _notes), Encoding.ASCII);
+                    break;
+                case ".docx":
+                    CaseReportDocx.Write(path, _data, _notes);
+                    break;
+                default:
+                    File.WriteAllText(path, CaseReport.RenderHtml(_data, _notes), new UTF8Encoding(false));
+                    break;
+            }
             return path;
+        }
+        catch (IOException ex)
+        {
+            StatusText = $"Export failed — is the file open in another program? {ex.Message}";
+            return null;
         }
         catch (Exception ex)
         {
@@ -230,28 +247,36 @@ public class CaseReportViewModel : ViewModelBase
         }
     }
 
-    private void Export()
+    private void Export(string format)
     {
         if (_loadedFor == null) return;
+        var (ext, filter) = format switch
+        {
+            "rtf" => (".rtf", "Rich Text (*.rtf)|*.rtf"),
+            "docx" => (".docx", "Word document (*.docx)|*.docx"),
+            _ => (".html", "HTML report (*.html)|*.html"),
+        };
         var name = string.IsNullOrWhiteSpace(_config.CaseName)
             ? "CaseReport"
             : string.Concat(_config.CaseName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + "_CaseReport";
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Export case report",
-            Filter = "HTML report (*.html)|*.html",
-            FileName = $"{name}_{DateTime.Now:yyyyMMdd}.html",
+            Filter = filter,
+            DefaultExt = ext,
+            FileName = $"{name}_{DateTime.Now:yyyyMMdd}{ext}",
             InitialDirectory = _loadedFor,
         };
         if (dlg.ShowDialog() != true) return;
-        var p = WriteHtml(dlg.FileName);
-        if (p != null) StatusText = $"Exported: {p}  (open it and print to PDF if you need a PDF)";
+        var p = WriteReport(dlg.FileName);
+        if (p != null)
+            StatusText = $"Exported: {p}" + (ext == ".html" ? "  (open it and print to PDF if you need a PDF)" : "");
     }
 
     private void OpenInBrowser()
     {
         if (_loadedFor == null) return;
-        var p = WriteHtml(Path.Combine(_loadedFor, CaseReport.HtmlFileName));
+        var p = WriteReport(Path.Combine(_loadedFor, CaseReport.HtmlFileName));
         if (p == null) return;
         try
         {

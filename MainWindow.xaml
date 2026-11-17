@@ -137,7 +137,7 @@
                             <DataTrigger Binding="{Binding ActivePanel}" Value="Report">
                                 <Setter Property="Content">
                                     <Setter.Value>
-                                        <views:CaseReportView DataContext="{Binding Report}"/>
+                                        <views:CaseReportView/>
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>

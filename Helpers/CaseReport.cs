@@ -526,18 +526,71 @@ namespace Helpers
         private static IEnumerable<string> Lines(string? s) =>
             (s ?? "").Replace("\r", "").Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0);
 
-        public static string RenderHtml(CaseReportData data, CaseReportNotes notes)
+        /// <summary>
+        /// Everything the exporters print, resolved once (analyst text over
+        /// automatic suggestions, included findings in report order), so HTML,
+        /// RTF and Word always say the same thing.
+        /// </summary>
+        public sealed record Content(
+            CaseReportData Data, string Title, string Severity, string Status,
+            IReadOnlyList<string> Meta, IReadOnlyList<string> Bluf,
+            IReadOnlyList<ReportFinding> Findings, IReadOnlyList<ReportFinding> Timeline,
+            int AffectedHosts, DateTime? First, DateTime? Last,
+            IReadOnlyList<(string Text, bool Detected)> Gaps, IReadOnlyList<(string Text, bool Done)> Steps)
+        {
+            public string HostIps(string host) =>
+                Data.Hosts.FirstOrDefault(h => h.Host.Equals(host, StringComparison.OrdinalIgnoreCase)) is { Ips.Count: > 0 } h
+                    ? string.Join(", ", h.Ips) : "";
+            public string ActivitySpan => First.HasValue ? Span(Last!.Value - First.Value) : "–";
+        }
+
+        public const string MethodNote =
+            "Terms follow the PHIA probability yardstick. The automatic value combines detection severity (critical, high, medium), " +
+            "independent corroboration (another parser on the same host saw an indicator from the finding) and matches against the " +
+            "case IOC list. Findings marked \"set by analyst\" were reviewed and changed manually. Each finding names the parser " +
+            "sources and collection it came from; full detail is in that collection's QuickWins.txt.";
+
+        public static Content Compose(CaseReportData data, CaseReportNotes notes)
         {
             var inc = data.Findings.Where(f => f.Include)
                 .OrderByDescending(f => f.Likelihood).ThenBy(f => f.Rank).ThenBy(f => f.TimeUtc ?? DateTime.MaxValue)
                 .ToList();
-            var title = string.IsNullOrWhiteSpace(notes.Title) ? SuggestTitle(data) : notes.Title.Trim();
-            var severity = string.IsNullOrWhiteSpace(notes.Severity) ? SuggestSeverity(data) : notes.Severity;
-            var status = string.IsNullOrWhiteSpace(notes.Status) ? "Active" : notes.Status;
-            var bluf = string.IsNullOrWhiteSpace(notes.Bluf) ? DraftBluf(data) : notes.Bluf.Trim();
-            var affected = inc.Select(f => f.Host).Distinct(StringComparer.OrdinalIgnoreCase).Count();
             var times = inc.Where(f => f.TimeUtc.HasValue).Select(f => f.TimeUtc!.Value).ToList();
-            DateTime? first = times.Count > 0 ? times.Min() : null, last = times.Count > 0 ? times.Max() : null;
+            var meta = new List<string>();
+            if (!string.IsNullOrWhiteSpace(data.CaseName)) meta.Add(data.CaseName);
+            if (!string.IsNullOrWhiteSpace(data.Analyst)) meta.Add("Analyst: " + data.Analyst);
+            meta.Add($"Generated {data.GeneratedUtc:yyyy-MM-dd HH:mm} UTC");
+            var steps = Lines(notes.NextSteps).Select(s =>
+            {
+                bool done = s.StartsWith("[x]", StringComparison.OrdinalIgnoreCase);
+                return (done || s.StartsWith("[ ]") ? s.Substring(3).Trim() : s, done);
+            }).ToList();
+
+            return new Content(
+                data,
+                string.IsNullOrWhiteSpace(notes.Title) ? SuggestTitle(data) : notes.Title.Trim(),
+                string.IsNullOrWhiteSpace(notes.Severity) ? SuggestSeverity(data) : notes.Severity,
+                string.IsNullOrWhiteSpace(notes.Status) ? "Active" : notes.Status,
+                meta,
+                Lines(string.IsNullOrWhiteSpace(notes.Bluf) ? DraftBluf(data) : notes.Bluf).ToList(),
+                inc,
+                inc.Where(f => f.TimeUtc.HasValue).OrderBy(f => f.TimeUtc).ToList(),
+                inc.Select(f => f.Host).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                times.Count > 0 ? times.Min() : null,
+                times.Count > 0 ? times.Max() : null,
+                Lines(notes.Gaps).Select(g => (g, false)).Concat(data.AutoGaps.Select(g => (g, true))).ToList(),
+                steps);
+        }
+
+        public static string RenderHtml(CaseReportData data, CaseReportNotes notes)
+        {
+            var c = Compose(data, notes);
+            var inc = c.Findings;
+            var title = c.Title;
+            var severity = c.Severity;
+            var status = c.Status;
+            var affected = c.AffectedHosts;
+            DateTime? first = c.First, last = c.Last;
             var ipsByHost = data.Hosts.ToDictionary(h => h.Host, h => h.Ips, StringComparer.OrdinalIgnoreCase);
             string HostCell(string host) =>
                 $"<span class=\"mono\">{E(host)}</span>" +
@@ -551,11 +604,7 @@ namespace Helpers
 
             // Header
             sb.Append("<header><div>");
-            var meta = new List<string>();
-            if (!string.IsNullOrWhiteSpace(data.CaseName)) meta.Add(E(data.CaseName));
-            if (!string.IsNullOrWhiteSpace(data.Analyst)) meta.Add("Analyst: " + E(data.Analyst));
-            meta.Add($"Generated {data.GeneratedUtc:yyyy-MM-dd HH:mm} UTC");
-            sb.Append($"<p class=\"meta\">{string.Join(" · ", meta)}</p>");
+            sb.Append($"<p class=\"meta\">{E(string.Join(" · ", c.Meta))}</p>");
             sb.Append($"<h1>{E(title)}</h1></div><div class=\"tags\">");
             sb.Append($"<span class=\"pill {(severity is "Critical" ? "s-crit" : severity is "High" ? "s-high" : "s-other")}\">Severity: {E(severity.ToLowerInvariant())}</span>");
             sb.Append($"<span class=\"pill {(status is "Closed" ? "s-other" : "s-high")}\">Status: {E(status.ToLowerInvariant())}</span>");
@@ -567,13 +616,13 @@ namespace Helpers
             Metric(sb, "Key findings", inc.Count.ToString());
             Metric(sb, "Case IOCs seen", data.CaseIocsSearched ? data.CaseIocHits.Count.ToString() : "–");
             Metric(sb, "First activity (UTC)", first.HasValue ? $"{first:HH:mm} <small>{first:yyyy-MM-dd}</small>" : "–");
-            Metric(sb, "Activity span", first.HasValue ? Span(last!.Value - first.Value) : "–");
+            Metric(sb, "Activity span", c.ActivitySpan);
             sb.Append("</section>");
 
             // BLUF
             sb.Append("<h2>Bottom line up front</h2>");
             sb.Append("<div class=\"bluf\">");
-            foreach (var p in Lines(bluf)) sb.Append($"<p>{E(p)}</p>");
+            foreach (var p in c.Bluf) sb.Append($"<p>{E(p)}</p>");
             sb.Append("</div>");
             sb.Append("<div class=\"scale\"><span>Probability scale:</span>");
             foreach (var l in Enum.GetValues<Likelihood>().Reverse())
@@ -603,7 +652,7 @@ namespace Helpers
             }
 
             // Timeline
-            var timeline = inc.Where(f => f.TimeUtc.HasValue).OrderBy(f => f.TimeUtc).ToList();
+            var timeline = c.Timeline;
             if (timeline.Count > 0)
             {
                 sb.Append("<h2>Timeline <span class=\"count\">UTC</span></h2><table class=\"tl\"><thead><tr><th>Time</th><th>Host</th><th>Event</th><th>Source</th><th>Likelihood</th></tr></thead><tbody>");
@@ -664,35 +713,27 @@ namespace Helpers
             }
 
             // Gaps
-            var gaps = Lines(notes.Gaps).ToList();
-            if (gaps.Count + data.AutoGaps.Count > 0)
+            if (c.Gaps.Count > 0)
             {
                 sb.Append("<h2>Intelligence gaps</h2><ul class=\"gaps\">");
-                foreach (var g in gaps) sb.Append($"<li>{E(g)}</li>");
-                foreach (var g in data.AutoGaps) sb.Append($"<li>{E(g)} <span class=\"muted\">(detected)</span></li>");
+                foreach (var (g, detected) in c.Gaps)
+                    sb.Append($"<li>{E(g)}{(detected ? " <span class=\"muted\">(detected)</span>" : "")}</li>");
                 sb.Append("</ul>");
             }
 
             // Next steps
-            var steps = Lines(notes.NextSteps).ToList();
-            if (steps.Count > 0)
+            if (c.Steps.Count > 0)
             {
                 sb.Append("<h2>Next steps</h2><ul class=\"steps\">");
-                foreach (var s in steps)
+                foreach (var (text, done) in c.Steps)
                 {
-                    bool done = s.StartsWith("[x]", StringComparison.OrdinalIgnoreCase);
-                    var text = done || s.StartsWith("[ ]") ? s.Substring(3).Trim() : s;
                     sb.Append($"<li class=\"{(done ? "done" : "")}\"><span class=\"box\">{(done ? "✓" : "")}</span>{E(text)}</li>");
                 }
                 sb.Append("</ul>");
             }
 
             // Method
-            sb.Append("<footer><p><b>How likelihood is assessed.</b> Terms follow the PHIA probability yardstick. " +
-                      "The automatic value combines detection severity (critical, high, medium), independent corroboration " +
-                      "(another parser on the same host saw an indicator from the finding) and matches against the case IOC list. " +
-                      "Findings marked \"set by analyst\" were reviewed and changed manually. Each finding names the parser sources " +
-                      "and collection it came from; full detail is in that collection's QuickWins.txt.</p>" +
+            sb.Append($"<footer><p><b>How likelihood is assessed.</b> {E(MethodNote)}</p>" +
                       "<p>Generated by CSIRT UAC Parser.</p></footer>");
             sb.Append("</main></body></html>");
             return sb.ToString();
@@ -701,7 +742,7 @@ namespace Helpers
         private static void Metric(StringBuilder sb, string label, string valueHtml) =>
             sb.Append($"<div class=\"metric\"><p class=\"ml\">{E(label)}</p><p class=\"mv\">{valueHtml}</p></div>");
 
-        private static string Span(TimeSpan t) =>
+        internal static string Span(TimeSpan t) =>
             t.TotalDays >= 2 ? $"{t.TotalDays:0} days" :
             t.TotalHours >= 1 ? $"{t.TotalHours:0.#} h" :
             $"{Math.Max(1, t.TotalMinutes):0} min";

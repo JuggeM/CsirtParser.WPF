@@ -18,7 +18,9 @@
         </Style>
     </UserControl.Resources>
 
-    <StackPanel>
+    <!-- The panel inherits MainViewModel; bind to its Report from inside the view
+         (a DataContext binding on the view itself in MainWindow's style never resolves) -->
+    <StackPanel DataContext="{Binding Report}">
         <TextBlock Text="Case report" Style="{StaticResource SectionTitle}"/>
 
         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,10">
@@ -33,9 +35,21 @@
             <Button Content="Open in browser" Style="{StaticResource PrimaryButton}"
                     Command="{Binding OpenCommand}" Padding="14,6" Margin="0,0,8,8"
                     ToolTip="Writes CaseReport.html to the output folder and opens it. Print from the browser to get a PDF."/>
-            <Button Content="Export HTML…" Style="{StaticResource StandardButton}"
-                    Command="{Binding ExportCommand}" Padding="14,6" Margin="0,0,8,8"
-                    ToolTip="Saves a self-contained HTML report wherever you choose"/>
+            <Button x:Name="ExportButton" Content="Export ▾" Style="{StaticResource StandardButton}"
+                    Click="ExportButton_Click" Padding="14,6" Margin="0,0,8,8"
+                    IsEnabled="{Binding HasData}"
+                    ToolTip="Save the report as HTML, RTF or Word">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="HTML (.html) — self-contained page, print to PDF"
+                                  Command="{Binding ExportCommand}" CommandParameter="html"/>
+                        <MenuItem Header="Word (.docx)"
+                                  Command="{Binding ExportCommand}" CommandParameter="docx"/>
+                        <MenuItem Header="Rich Text (.rtf) — Word, WordPad, LibreOffice"
+                                  Command="{Binding ExportCommand}" CommandParameter="rtf"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
             <Button Content="Rebuild from output" Style="{StaticResource StandardButton}"
                     Command="{Binding RefreshCommand}" Padding="14,6" Margin="0,0,8,8"
                     ToolTip="Reads Findings.tsv and IocHits.tsv again. Your edits are kept."/>

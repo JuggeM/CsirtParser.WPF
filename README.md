@@ -122,8 +122,10 @@ Severity levels used throughout:
 ## Case report
 
 The **Case report** panel turns the processed output of every collection into a readable English summary for
-stakeholders, exported as a self-contained HTML file (**Open in browser** writes `Processed\CaseReport.html`;
-print it from the browser to get a PDF).
+stakeholders. **Export ▾** saves it as a self-contained HTML page, a Word document (`.docx`, with real Heading
+styles so the navigation pane and a table of contents work) or Rich Text (`.rtf`). All three have the same
+content. **Open in browser** writes `Processed\CaseReport.html` and opens it; print it from the browser to get
+a PDF.
 
 - **Bottom line up front**: a draft written from the findings, which you can edit.
 - **Key findings**: each finding lists its host and IP, time, parser sources, and the collection's `QuickWins.txt`.
