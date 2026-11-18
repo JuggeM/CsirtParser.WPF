@@ -660,6 +660,19 @@ public class ParserOrchestrator
                 suspiciousLogs, patternCounts, firstLastSeen, ipLogs, fileCounts, perFileTimestamps);
         }
 
+        // ── AI coding agents (UAC 3.4.0+ ai_tools artifacts) ─────────
+        if (_config.ParseAiAgents)
+        {
+            using var aiCsv = CreateCsv(Path.Combine(outputDir, $"Normalized_{Parsers.AiAgentParser.LogKey}.csv"), append: false);
+            var aiParser = new Parsers.AiAgentParser();
+            aiParser.AttachNormalizedWriter(aiCsv);
+            aiParser.AttachHostname(hostname);
+            RunUserHistoryBlock(Parsers.AiAgentParser.LogKey, collectionName, outputDir, hostname,
+                Parsers.AiAgentParser.DiscoverFiles(rootPath),
+                (p, u) => aiParser.ParseFile(p, u),
+                suspiciousLogs, patternCounts, firstLastSeen, ipLogs, fileCounts, perFileTimestamps);
+        }
+
         // Finalise QuickWins
         DateTime? overallFirst = null, overallLast = null;
         // CRONTAB "times" are file modification times (often the extraction

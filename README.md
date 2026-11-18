@@ -24,6 +24,7 @@ A Windows desktop application for parsing and triaging [UAC (Unix Artefact Colle
 | systemd Journal | `*.journal` (binary) | sudo, SSH, shell execution, cron, reverse shells |
 | Crontab scanner | `/etc/cron*`, `/var/spool/cron` | Persistence, reverse shells, downloads, base64 payloads (decoded inline) |
 | Bash / Zsh history | `.bash_history`, `.zsh_history` | Reverse shells, droppers, credential access, lateral movement (ssh/scp), writes to sudoers/authorized_keys, history clearing |
+| AI coding agents | UAC 3.4.0+ `ai_tools`: Claude Code, Codex, Gemini CLI, Copilot, Cursor, Goose, OpenCode, Qwen, Kiro and more | Every shell command, file write, fetch and prompt from agent transcripts (UTC); secrets hunting, reverse shells, uploads to raw IPs, writes to persistence files; hooks and MCP servers that run commands; approval bypass (`bypassPermissions`, yolo, `approval_policy = never`); prompt injection in `CLAUDE.md`/`AGENTS.md`; credential files present (never read) |
 | Python history | `.python_history` | REPL commands: sockets, subprocess, file access |
 | Database history | MySQL, PostgreSQL, SQLite, Redis | Data access and dumps, user and privilege changes |
 | Vim info / Less history | `.viminfo`, `.lesshst` | Files opened and edited, shell escapes |
@@ -179,7 +180,7 @@ Keyword matching is word-based: `nc ` does not match `rsync`, and `curl` does no
 
 ## Test case
 
-`tools/New-TestCase.ps1` builds a synthetic UAC case with five Linux hosts: logs, binary journals, crontabs, web logs, live response, body files, shell histories and lateral movement between the hosts. It also covers the extraction cases (already extracted, already processed, interrupted, corrupt archive). All IPs are from documentation ranges.
+`tools/New-TestCase.ps1` builds a synthetic UAC case with five Linux hosts: logs, binary journals, crontabs, web logs, live response, body files, shell histories and lateral movement between the hosts. On db01 the user `dev` has Claude Code, Codex and Gemini CLI artifacts with an agent abused to hunt for secrets, a beacon hook, malicious MCP servers and a poisoned `CLAUDE.md`. It also covers the extraction cases (already extracted, already processed, interrupted, corrupt archive). All IPs are from documentation ranges.
 
 ```powershell
 .\tools\New-TestCase.ps1 -Force      # creates TestCase\ in the repo root (git-ignored)
@@ -216,6 +217,8 @@ See `Parsers/Bashhistoryparser.cs` or `Parsers/CrontabScanner.cs` for complete e
 ## Security note
 
 CsirtParser processes artefacts from potentially compromised systems. Run it inside an isolated analysis VM, not on your daily workstation, and don't open untrusted UAC archives on a machine connected to production networks.
+
+UAC's AI agent artifacts include credential files (`.credentials.json`, `auth.json`, Copilot `hosts.json`) and transcripts that can contain secrets the agent read. CsirtParser reports credential files by name and never reads their values, but the collection itself holds live tokens: store and share it accordingly, and revoke the tokens if the host is compromised.
 
 ---
 

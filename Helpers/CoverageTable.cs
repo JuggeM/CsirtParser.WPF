@@ -18,7 +18,7 @@ namespace Helpers
         private static readonly string[] Order =
         {
             "AUTH.LOG", "SECURE", "JOURNAL", "AUDIT", "SYSLOG", "MESSAGES", "CRONTAB",
-            "LIVE_RESPONSE", "BODYFILE", "BASH", "ZSH", "PYHISTORY", "DBHISTORY",
+            "LIVE_RESPONSE", "BODYFILE", "BASH", "ZSH", "AIAGENT", "PYHISTORY", "DBHISTORY",
             "VIMINFO", "LESSHST", "WGETHSTS", "WEB", "DOCKER",
         };
 

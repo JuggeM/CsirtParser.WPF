@@ -69,6 +69,7 @@ public class ParserConfig
     public bool ParsePythonHistory { get; set; } = true;
     public bool ParseWgetHsts { get; set; } = true;
     public bool ParseLessHst { get; set; } = true;
+    public bool ParseAiAgents { get; set; } = true;
 
     // ── Detection thresholds ─────────────────────────────────────────
     /// <summary>Failed login count before an IP is flagged as brute-force.</summary>

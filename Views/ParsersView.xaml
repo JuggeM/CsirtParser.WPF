@@ -501,6 +501,29 @@
                 </Grid>
             </Border>
 
+            <!-- AI coding agents -->
+            <Border Style="{StaticResource ParserCard}" Margin="6,0,0,8">
+                <Border.ToolTip>
+                    <ToolTip Style="{StaticResource ForensicTip}">
+                        <StackPanel>
+                            <TextBlock Text="AI coding agents" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap">Reads the AI agent artifacts UAC 3.4.0+ collects (Claude Code, Codex, Gemini CLI, Copilot, Cursor, Goose, OpenCode, Qwen, Kiro and others). Transcripts give every shell command the agent ran, files it wrote, URLs it fetched and the prompt behind them, with UTC timestamps. Flags reverse shells, secrets hunting (wallets, SSH keys, cloud credentials), pipe-to-shell, writes to persistence files, hooks and MCP servers that run commands, approval bypass (bypassPermissions, yolo, approval_policy=never), prompt-injection phrases in instruction files, and credential files left on disk (reported, never read).</TextBlock>
+                        </StackPanel>
+                    </ToolTip>
+                </Border.ToolTip>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="AI coding agents" FontWeight="Medium"/>
+                        <TextBlock Text="Claude Code, Codex, Gemini, Copilot…" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Config.ParseAiAgents}" VerticalAlignment="Center" Margin="0"/>
+                </Grid>
+            </Border>
+
         </UniformGrid>
     </StackPanel>
 </UserControl>

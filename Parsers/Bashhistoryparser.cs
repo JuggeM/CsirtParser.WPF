@@ -367,7 +367,7 @@ namespace Parsers
         // Classification helpers
         // ════════════════════════════════════════════════════════════════
 
-        private static string ClassifyCommand(string cmd)
+        internal static string ClassifyCommand(string cmd)
         {
             if (string.IsNullOrWhiteSpace(cmd)) return "Info";
 
@@ -387,7 +387,7 @@ namespace Parsers
         }
 
         /// <summary>Short "why" for the analyst on the special-cased indicators.</summary>
-        private static string ReasonFor(string cmd)
+        internal static string ReasonFor(string cmd)
         {
             if (Indicators.IsAntiForensics(cmd)) return "  [anti-forensics]";
             var written = Indicators.SensitiveFileWritten(cmd);
