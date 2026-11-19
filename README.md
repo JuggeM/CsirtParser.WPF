@@ -69,7 +69,7 @@ CaseFolder\
     ├── CaseReport.json      ← your edits to the case report
     ├── iocs_discovered.txt  ← IOCs found in findings that are not in iocs.txt yet
     └── uac-hostname-20241114\
-        ├── QuickWins.txt / .rtf      ← per-host analyst report
+        ├── QuickWins.txt / .rtf      ← per-host analyst report (.rtf has the case report's layout: counts, tables per source)
         ├── Findings.tsv              ← machine-readable findings (feeds the case summary and report)
         ├── IocHits.tsv               ← case IOC hits on this host
         ├── Normalized_<SOURCE>.csv   ← normalised rows per source (AUTH_LOG, SYSLOG, WEB, JOURNAL, BASH, …)
