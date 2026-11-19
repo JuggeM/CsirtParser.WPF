@@ -337,6 +337,66 @@ function New-Collection([string]$name, [string]$host_, [string]$day) {
         ("tcp        0      0 {0}:22           203.0.113.45:51344      ESTABLISHED 1400/sshd: root" -f $myIp)
     )
 
+    # ── More live_response output, named exactly as UAC 3.x writes it ──
+    $inv = [cultureinfo]::InvariantCulture
+    $dd  = [datetime]::new(2026, 11, $d)
+    $lt  = { param($h, $m, $s) ('{0} {1,2} {2:00}:{3:00}:{4:00} 2026' -f $dd.ToString('ddd MMM', $inv), $d, $h, $m, $s) }
+    Write-LfFile "$lr\process\ps_-eo_user_pid_ppid_pcpu_pmem_tty_stat_lstart_args.txt" @(
+        'USER         PID    PPID %CPU %MEM TT       STAT                  STARTED COMMAND'
+        ('root           1       0  0.0  0.1 ?        Ss   {0} /sbin/init' -f (& $lt 9 0 0))
+        ('root        1502       1 12.4  1.2 ?        Sl   {0} /tmp/.x.sh --pool 203.0.113.45:3333' -f (& $lt 10 23 5))
+        ('root        1530    1400  0.0  0.0 pts/0    S    {0} /bin/bash -i' -f (& $lt 10 24 0))
+    )
+    Write-LfFile "$lr\system\lsmod.txt" @(
+        'Module                  Size  Used by'
+        'nf_tables             274432  0'
+        'ext4                  999424  1'
+    )
+    # wtmp: the admin from home, then root from the attacker after the brute force
+    Write-LfFile "$lr\system\last_-a_-F.txt" @(
+        ('root     pts/0        {0} - {1}  (00:18)     203.0.113.45' -f (& $lt 10 21 40), (& $lt 10 40 3))
+        ('deploy   pts/1        {0} - {1}  (01:04)     198.51.100.10' -f (& $lt 9 58 1), (& $lt 11 2 17))
+        ('reboot   system boot  {0}   still running      6.1.0-26-amd64' -f (& $lt 9 0 0))
+        ''
+        ('wtmp begins {0}' -f (& $lt 9 0 0))
+    )
+    $bt = foreach ($i in 0..11) { 'root     ssh:notty    {0} - {0}  (00:00)     203.0.113.45' -f (& $lt 10 15 (2 + 2 * $i)) }
+    Write-LfFile "$lr\system\lastb_-a_-F.txt" (@($bt) + @(
+        ('admin    ssh:notty    {0} - {0}  (00:00)     203.0.113.45' -f (& $lt 10 16 4))
+        ''
+        ('btmp begins {0}' -f (& $lt 9 0 0))
+    ))
+    Write-LfFile "$lr\system\systemctl_list-unit-files.txt" @(
+        'UNIT FILE                    STATE   VENDOR PRESET'
+        'ssh.service                  enabled enabled'
+        'cron.service                 enabled enabled'
+    )
+    $passwd = @(
+        'root:x:0:0:root:/root:/bin/bash'
+        'daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin'
+        'deploy:x:1001:1001::/home/deploy:/bin/bash'
+        'support:x:1002:1002::/home/support:/bin/bash'
+    )
+    if ($host_ -eq 'file01') { $passwd += 'sysbackup:x:0:0::/root:/bin/bash' }
+    Write-LfFile "$sys\etc\passwd" $passwd
+    Write-LfFile "$sys\etc\sudoers" @(
+        'Defaults	env_reset'
+        'root	ALL=(ALL:ALL) ALL'
+        '%sudo	ALL=(ALL:ALL) ALL'
+        'support ALL=(ALL) NOPASSWD:ALL'
+    )
+    Write-LfFile "$root\system\hidden_files.txt" @('/tmp/.x.sh', '/etc/.pwd.lock', '/tmp/.X0-lock')
+    Write-LfFile "$root\system\hidden_directories.txt" @('/tmp/.X11-unix', '/tmp/.ICE-unix')
+
+    # file01: userland rootkit. The preload line is only visible in UAC's raw
+    # disk read (chkrootkit/), a UID 0 backdoor account, and the miner binary
+    # was deleted from disk while running (UAC recovered it).
+    if ($host_ -eq 'file01') {
+        Write-LfFile "$root\chkrootkit\etc_ld_so_preload.txt" @('/usr/local/lib/libprocesshider.so')
+        Write-LfFile "$sys\etc\ld.so.preload" @('')
+        Write-LfFile "$lr\process\proc\1502\recovered_exe" @('ELF placeholder')
+    }
+
     # ── systemd journal (UTC; host is CET, so 10:21 local = 09:21 UTC) ──
     $u = { param($dayOffset, $h, $m, $s) [datetimeoffset]::new(2026, 11, $d, $h, $m, $s, [timespan]::Zero).AddDays($dayOffset) }
     $machineId = ([guid]::NewGuid().ToString('N'))

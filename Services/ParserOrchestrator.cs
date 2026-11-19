@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.IO.Compression;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -10,7 +11,6 @@ using Helpers;
 using Output;
 using Parser.Docker;
 using Parser.Output;
-using Parser.Parsers.LiveResponse;
 using Parsers;
 using CsirtParser.WPF.Models;
 
@@ -417,20 +417,29 @@ public class ParserOrchestrator
                     _liveResponseWritten = true;
 
                     // Running processes / open connections → findings
-                    var lrFindings = LiveResponseTriage.Analyze(lrPath);
+                    var lrDetailed = LiveResponseTriage.AnalyzeDetailed(lrPath, _currentHostUtcOffset);
+                    var lrFindings = lrDetailed.Select(d => d.Finding).ToList();
                     suspiciousLogs["LIVE_RESPONSE"] = lrFindings;
-                    patternCounts["LIVE_RESPONSE"] = lrFindings
-                        .GroupBy(f => f.Contains("connection") ? "Suspicious connection" : "Suspicious process")
+                    patternCounts["LIVE_RESPONSE"] = lrDetailed
+                        .GroupBy(d => d.Pattern)
                         .ToDictionary(g => g.Key, g => g.Count());
-                    firstLastSeen["LIVE_RESPONSE"] = (DateTime.MaxValue, DateTime.MinValue);
+                    // Only wtmp/btmp findings carry a time; the rest describe the collection moment
+                    var lrTimes = lrFindings
+                        .Select(f => Regex.Match(f, @"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\]"))
+                        .Where(m => m.Success)
+                        .Select(m => DateTime.ParseExact(m.Groups[1].Value, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
+                        .ToList();
+                    firstLastSeen["LIVE_RESPONSE"] = lrTimes.Count > 0
+                        ? (lrTimes.Min(), lrTimes.Max())
+                        : (DateTime.MaxValue, DateTime.MinValue);
                     ipLogs["LIVE_RESPONSE"] = new Dictionary<string, int>();
                     fileCounts["LIVE_RESPONSE"] = 1;
                     if (lrFindings.Count > 0)
                     {
-                        _log($"[{collectionName}] LiveResponse: {lrFindings.Count} suspicious process/connection finding(s).");
+                        _log($"[{collectionName}] LiveResponse: {lrFindings.Count} finding(s).");
                         QuickWinsSectionWriter.WriteSection(
                             Path.Combine(outputDir, "QuickWins.txt"), "LIVE_RESPONSE",
-                            "No suspicious processes or connections.",
+                            "No live response findings.",
                             new List<(string FileName, List<string> Findings)> { ("live_response", lrFindings) });
                     }
                 }
@@ -1414,27 +1423,44 @@ public class ParserOrchestrator
 
         DateTime first = DateTime.MinValue, last = DateTime.MinValue;
 
+        // File names are the ones UAC 3.x writes. Config files come from the
+        // collected file system ([root]/etc), not from live_response.
+        var etc = LiveResponseTriage.FindSystemRoot(
+            Directory.GetParent(Path.TrimEndingDirectorySeparator(liveResponseRoot))?.FullName) is { } sysRoot
+            ? Path.Combine(sysRoot, "etc") : null;
+
         if (_config.ParseProcess)
-            TryAppendBlock(lines, liveResponseRoot, ref first, ref last,
-                "## Processes", new[] { "ps_aux.txt", "ps.txt", "processes.txt" }, 500);
+            TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Processes",
+                new[] { "ps_auxwww.txt", "ps_-ef.txt", "ps_-eo_user_pid_ppid_pcpu_pmem_tty_stat_etime_args.txt", "ps.txt" }, 500);
 
         if (_config.ParseNetwork)
-            TryAppendBlock(lines, liveResponseRoot, ref first, ref last,
-                "## Network", new[] { "netstat.txt", "ss.txt", "lsof_nP.txt", "ip_addr.txt" }, 500);
+        {
+            TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Network connections",
+                new[] { "ss_-tanp.txt", "ss_-anp.txt", "netstat_-anp.txt", "netstat_-an.txt" }, 500);
+            TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Network interfaces",
+                new[] { "ip_addr_show.txt", "ifconfig_-a.txt" }, 100);
+        }
 
-        TryAppendAccounts(lines, liveResponseRoot);
+        TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Logins (last -a -F)",
+            new[] { "last_-a_-F.txt", "last_-i.txt", "last.txt" }, 300);
+        TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Failed logins (lastb -a -F)",
+            new[] { "lastb_-a_-F.txt", "lastb_-i.txt", "lastb.txt" }, 300);
 
-        TryAppendBlock(lines, liveResponseRoot, ref first, ref last,
-            "## Cron", new[] { "crontab.txt", "cron.txt", "cron_d.txt" }, 200);
+        TryAppendAccounts(lines, etc);
 
-        TryAppendBlock(lines, liveResponseRoot, ref first, ref last,
-            "## Services", new[] { "systemctl_list-units.txt", "services.txt", "chkconfig.txt" }, 200);
+        TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Services (unit files)",
+            new[] { "systemctl_list-unit-files.txt", "systemctl_list-units.txt" }, 300);
+        TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Timers",
+            new[] { "systemctl_list-timers_--all.txt" }, 100);
+        TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Kernel modules",
+            new[] { "lsmod.txt" }, 300);
 
         if (_config.ParsePersistence)
-            TryAppendPersistence(lines, liveResponseRoot, ref first, ref last);
+            TryAppendPersistence(lines, etc, ref first, ref last);
 
         if (_config.ParseDocker)
-            TryAppendDockerHints(lines, liveResponseRoot, ref first, ref last);
+            TryAppendBlock(lines, liveResponseRoot, ref first, ref last, "## Docker containers",
+                new[] { "docker_container_ls_--all_--size.txt", "docker_info.txt" }, 200);
 
         var writer = new LiveResponseWriter(outDir);
         writer.WriteHeader("Live Response – DFIR");
@@ -1443,13 +1469,13 @@ public class ParserOrchestrator
         _log($"LiveResponse: wrote {lines.Count} lines.");
     }
 
-    // ── Live response helpers (mirrors Form1) ─────────────────────────
+    // ── Live response helpers ─────────────────────────────────────────
     private void TryAppendBlock(List<string> lines, string root,
         ref DateTime first, ref DateTime last, string header, string[] names, int take)
     {
         var path = FindFirst(root, names);
         if (path == null) return;
-        lines.Add(header);
+        lines.Add($"{header} — {Path.GetFileName(path)}");
         foreach (var ln in SafeRead(path).Take(take))
         {
             lines.Add(ln);
@@ -1458,66 +1484,44 @@ public class ParserOrchestrator
         lines.Add("");
     }
 
-    private static void TryAppendAccounts(List<string> lines, string root)
+    // UAC never collects /etc/shadow, so passwd, group and sudoers are what's there.
+    private static void TryAppendAccounts(List<string> lines, string? etc)
     {
-        var passwd = FindFirst(root, new[] { "etc_passwd.txt", "passwd.txt" });
-        var sudoers = FindFirst(root, new[] { "etc_sudoers.txt", "sudoers.txt" });
-        var shadow = FindFirst(root, new[] { "etc_shadow.txt", "shadow.txt" });
+        if (etc == null) return;
+        var files = new[] { "passwd", "group", "sudoers" }
+            .Select(n => Path.Combine(etc, n)).Where(File.Exists).ToList();
+        var sudoD = Path.Combine(etc, "sudoers.d");
+        if (Directory.Exists(sudoD)) files.AddRange(Directory.EnumerateFiles(sudoD));
+        if (files.Count == 0) return;
 
-        if (passwd == null && sudoers == null && shadow == null) return;
         lines.Add("## Accounts");
-
-        if (passwd != null) { lines.Add("-- /etc/passwd --"); lines.AddRange(SafeRead(passwd).Take(200)); lines.Add(""); }
-        if (sudoers != null) { lines.Add("-- /etc/sudoers --"); lines.AddRange(SafeRead(sudoers).Take(200)); lines.Add(""); }
-        if (shadow != null)
+        foreach (var f in files)
         {
-            lines.Add("-- /etc/shadow (redacted) --");
-            lines.AddRange(SafeRead(shadow).Select(RedactHash).Take(50)); lines.Add("");
+            lines.Add("-- /etc/" + Path.GetRelativePath(etc, f).Replace('\\', '/') + " --");
+            lines.AddRange(SafeRead(f).Where(l => !l.TrimStart().StartsWith("#")).Take(200));
+            lines.Add("");
         }
     }
 
-    private void TryAppendPersistence(List<string> lines, string root,
+    private void TryAppendPersistence(List<string> lines, string? etc,
         ref DateTime first, ref DateTime last)
     {
-        var rcLocal = FindFirst(root, new[] { "etc_rc.local.txt", "rc_local.txt" });
-        var profile = FindFirst(root, new[] { "etc_profile.txt", "profile.txt" });
-        var bashrc = FindFirst(root, new[] { "etc_bashrc.txt", "bashrc.txt" });
-        if (rcLocal == null && profile == null && bashrc == null) return;
+        if (etc == null) return;
+        var files = new[] { "rc.local", "ld.so.preload", "profile", "bash.bashrc", "bashrc", "crontab" }
+            .Select(n => Path.Combine(etc, n)).Where(File.Exists).ToList();
+        if (files.Count == 0) return;
 
         lines.Add("## Persistence candidates");
-        foreach (var f in new[] { rcLocal, profile, bashrc }.Where(x => x != null))
+        foreach (var f in files)
         {
-            lines.Add("-- " + Path.GetFileName(f));
-            foreach (var ln in SafeRead(f!).Take(150))
+            lines.Add("-- /etc/" + Path.GetFileName(f) + " --");
+            foreach (var ln in SafeRead(f).Where(l => !l.TrimStart().StartsWith("#") && l.Trim().Length > 0).Take(150))
             {
                 lines.Add(ln);
                 UpdateTimestamps(ln, ref first, ref last);
             }
             lines.Add("");
         }
-    }
-
-    private void TryAppendDockerHints(List<string> lines, string root,
-        ref DateTime first, ref DateTime last)
-    {
-        var docker = FindFirst(root, new[] { "docker_ps.txt", "docker_info.txt", "containers", "docker" });
-        if (docker == null) return;
-        lines.Add("## Docker hints");
-        if (Directory.Exists(docker))
-        {
-            lines.Add($"Directory: {docker}");
-            lines.AddRange(Directory.EnumerateFiles(docker, "*", SearchOption.AllDirectories)
-                .Take(30).Select(Path.GetFileName)!);
-        }
-        else
-        {
-            foreach (var ln in SafeRead(docker).Take(200))
-            {
-                lines.Add(ln);
-                UpdateTimestamps(ln, ref first, ref last);
-            }
-        }
-        lines.Add("");
     }
 
     // ── Static helpers ────────────────────────────────────────────────
@@ -1537,9 +1541,6 @@ public class ParserOrchestrator
         try { return File.ReadLines(path); }
         catch { return Array.Empty<string>(); }
     }
-
-    private static string RedactHash(string line) =>
-        Regex.Replace(line, @"^([^:]*:)[^:]*(:.*)$", "$1********$2");
 
     private static void UpdateTimestamps(string line, ref DateTime first, ref DateTime last)
     {

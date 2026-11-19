@@ -30,7 +30,7 @@ A Windows desktop application for parsing and triaging [UAC (Unix Artefact Colle
 | Vim info / Less history | `.viminfo`, `.lesshst` | Files opened and edited, shell escapes |
 | Wget HSTS | `.wget-hsts` | Hosts files were downloaded from |
 | Docker | Container logs and events | Privileged containers, unusual image pulls |
-| Live response | UAC `live_response` | Processes from temp paths, suspicious command lines, connections to C2/mining ports, accounts, sudoers, host IP addresses |
+| Live response | UAC `live_response`, `chkrootkit`, `system`, `[root]/etc` | Processes from temp paths, suspicious command lines, connections to C2/mining ports, processes running from deleted binaries (UAC-recovered), wtmp/btmp logins (external IPs, success after failed attempts), `/etc/ld.so.preload` rootkits (including entries only the raw disk read shows), UID 0 and passwordless accounts, `NOPASSWD:ALL` sudo, hidden files in temp folders, host IP addresses |
 | Body file | `bodyfile.txt` | Scored file timeline: dropped tools, webshells, executable or hidden files in temp directories |
 | SHA1 hashes | `hash_executables.sha1` | Suspicious executables scored by path, name and extension |
 
@@ -180,7 +180,7 @@ Keyword matching is word-based: `nc ` does not match `rsync`, and `curl` does no
 
 ## Test case
 
-`tools/New-TestCase.ps1` builds a synthetic UAC case with five Linux hosts: logs, binary journals, crontabs, web logs, live response, body files, shell histories and lateral movement between the hosts. On db01 the user `dev` has Claude Code, Codex and Gemini CLI artifacts with an agent abused to hunt for secrets, a beacon hook, malicious MCP servers and a poisoned `CLAUDE.md`. It also covers the extraction cases (already extracted, already processed, interrupted, corrupt archive). All IPs are from documentation ranges.
+`tools/New-TestCase.ps1` builds a synthetic UAC case with five Linux hosts: logs, binary journals, crontabs, web logs, live response, body files, shell histories and lateral movement between the hosts. On db01 the user `dev` has Claude Code, Codex and Gemini CLI artifacts with an agent abused to hunt for secrets, a beacon hook, malicious MCP servers and a poisoned `CLAUDE.md`. On file01 a userland rootkit hides an `ld.so.preload` entry, a UID 0 backdoor account exists and the miner runs from a deleted binary. It also covers the extraction cases (already extracted, already processed, interrupted, corrupt archive). All IPs are from documentation ranges.
 
 ```powershell
 .\tools\New-TestCase.ps1 -Force      # creates TestCase\ in the repo root (git-ignored)
