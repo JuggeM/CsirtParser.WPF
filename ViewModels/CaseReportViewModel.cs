@@ -31,6 +31,28 @@ public class CaseReportViewModel : ViewModelBase
         ExportCommand = new RelayCommand(p => Export(p as string ?? "html"), _ => _data != null);
         OpenCommand = new RelayCommand(_ => OpenInBrowser(), _ => _data != null);
         SaveCommand = new RelayCommand(_ => Save(), _ => _data != null);
+        SelectAllCommand = new RelayCommand(_ => SetIncluded(_ => true), _ => _data != null);
+        SelectHighCommand = new RelayCommand(_ => SetIncluded(f => f.Rank <= 1), _ => _data != null);
+        ResetSelectionCommand = new RelayCommand(_ => SetIncluded(f => f.AutoInclude), _ => _data != null);
+    }
+
+    public ICommand SelectAllCommand { get; }
+    public ICommand SelectHighCommand { get; }
+    public ICommand ResetSelectionCommand { get; }
+
+    private string _selectAllText = "Select all";
+    public string SelectAllText { get => _selectAllText; private set => SetField(ref _selectAllText, value); }
+
+    private string _selectHighText = "Select all ≥ HIGH";
+    public string SelectHighText { get => _selectHighText; private set => SetField(ref _selectHighText, value); }
+
+    private string _resetSelectionText = "Reset to default";
+    public string ResetSelectionText { get => _resetSelectionText; private set => SetField(ref _resetSelectionText, value); }
+
+    /// <summary>Ticks exactly the findings that match; likelihoods and notes are left alone.</summary>
+    private void SetIncluded(Func<ReportFinding, bool> include)
+    {
+        foreach (var f in Findings) f.Include = include(f);
     }
 
     public ICommand RefreshCommand { get; }
@@ -179,6 +201,9 @@ public class CaseReportViewModel : ViewModelBase
         Summary = $"{inc.Count} of {Findings.Count} finding(s) in the report · " +
                   $"{inc.Select(f => f.Host).Distinct().Count()} of {_data.Hosts.Count} host(s) · " +
                   $"{_data.Lateral.Count} lateral movement link(s)";
+        SelectAllText = $"Select all ({Findings.Count})";
+        SelectHighText = $"Select all ≥ HIGH ({Findings.Count(f => f.Rank <= 1)})";
+        ResetSelectionText = $"Reset to default ({Findings.Count(f => f.AutoInclude)})";
     }
 
     private void CaptureNotes()

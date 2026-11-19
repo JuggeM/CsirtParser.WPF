@@ -171,7 +171,7 @@ namespace Helpers
         public const string NotesFileName = "CaseReport.json";
         public const string HtmlFileName = "CaseReport.html";
         private const int MaxSharedIocs = 30;
-        /// <summary>Findings per host ticked by default; the rest stay in the list for the analyst to add.</summary>
+        /// <summary>HIGH findings per host ticked by default (every CRITICAL is); the rest stay in the list for the analyst to add.</summary>
         private const int DefaultPerHost = 4;
 
         public static readonly string[] SeverityLevels = { "Critical", "High", "Medium", "Low" };
@@ -267,12 +267,15 @@ namespace Helpers
                 }
             }
 
-            // Default selection: the strongest few per host, plus anything linking case hosts
+            // Default selection: every CRITICAL, the strongest few HIGH per host,
+            // plus anything linking case hosts
             var picked = findings
-                .Where(f => f.Rank <= 1)
+                .Where(f => f.Rank == 0)
+                .Concat(findings
+                .Where(f => f.Rank == 1)
                 .GroupBy(f => f.Collection)
                 .SelectMany(g => g.OrderByDescending(f => f.AutoLikelihood).ThenBy(f => f.Rank)
-                                  .ThenBy(f => f.TimeUtc ?? DateTime.MaxValue).Take(DefaultPerHost))
+                                  .ThenBy(f => f.TimeUtc ?? DateTime.MaxValue).Take(DefaultPerHost)))
                 .Concat(findings.Where(f => f.LateralTo != null && f.Rank <= 2))
                 .Select(f => f.Id).ToHashSet();
             foreach (var f in findings) { f.AutoInclude = picked.Contains(f.Id); f.Include = f.AutoInclude; }

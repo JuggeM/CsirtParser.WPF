@@ -101,7 +101,20 @@
                 value was chosen and to add a note. Scale: almost certain ≥95% · highly likely 80–90% · likely 55–75% ·
                 realistic possibility 40–50% · unlikely 25–35%.
             </TextBlock>
-            <TextBlock Text="{Binding Summary}" FontSize="12" Margin="0,0,0,6"/>
+            <DockPanel Margin="0,0,0,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="{Binding SelectHighText}" Style="{StaticResource StandardButton}"
+                            Command="{Binding SelectHighCommand}" Height="26" Padding="10,0" Margin="6,0,0,0"
+                            ToolTip="Ticks every CRITICAL and HIGH finding and unticks the rest"/>
+                    <Button Content="{Binding SelectAllText}" Style="{StaticResource StandardButton}"
+                            Command="{Binding SelectAllCommand}" Height="26" Padding="10,0" Margin="6,0,0,0"
+                            ToolTip="Ticks every finding in the list"/>
+                    <Button Content="{Binding ResetSelectionText}" Style="{StaticResource StandardButton}"
+                            Command="{Binding ResetSelectionCommand}" Height="26" Padding="10,0" Margin="6,0,0,0"
+                            ToolTip="Back to the default: every CRITICAL, the strongest 4 HIGH per host and lateral movement. Likelihoods and notes are kept."/>
+                </StackPanel>
+                <TextBlock Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
 
             <DataGrid ItemsSource="{Binding Findings}"
                       AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
