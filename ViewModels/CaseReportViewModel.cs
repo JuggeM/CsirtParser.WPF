@@ -254,6 +254,10 @@ public class CaseReportViewModel : ViewModelBase
                 case ".docx":
                     CaseReportDocx.Write(path, _data, _notes);
                     break;
+                case ".xlsx":
+                    // Case tracker rows: exactly the findings ticked for the report
+                    CaseTracker.Write(path, CaseTracker.Rows(_data, Findings.Where(f => f.Include)));
+                    break;
                 default:
                     File.WriteAllText(path, CaseReport.RenderHtml(_data, _notes), new UTF8Encoding(false));
                     break;
@@ -279,14 +283,15 @@ public class CaseReportViewModel : ViewModelBase
         {
             "rtf" => (".rtf", "Rich Text (*.rtf)|*.rtf"),
             "docx" => (".docx", "Word document (*.docx)|*.docx"),
+            "xlsx" => (".xlsx", "Excel workbook (*.xlsx)|*.xlsx"),
             _ => (".html", "HTML report (*.html)|*.html"),
         };
         var name = string.IsNullOrWhiteSpace(_config.CaseName)
             ? "CaseReport"
-            : string.Concat(_config.CaseName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + "_CaseReport";
+            : string.Concat(_config.CaseName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + (format == "xlsx" ? "_CaseTracker" : "_CaseReport");
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Export case report",
+            Title = format == "xlsx" ? "Export case tracker rows" : "Export case report",
             Filter = filter,
             DefaultExt = ext,
             FileName = $"{name}_{DateTime.Now:yyyyMMdd}{ext}",
@@ -295,7 +300,8 @@ public class CaseReportViewModel : ViewModelBase
         if (dlg.ShowDialog() != true) return;
         var p = WriteReport(dlg.FileName);
         if (p != null)
-            StatusText = $"Exported: {p}" + (ext == ".html" ? "  (open it and print to PDF if you need a PDF)" : "");
+            StatusText = $"Exported: {p}" + (ext == ".html" ? "  (open it and print to PDF if you need a PDF)"
+                       : ext == ".xlsx" ? $"  ({Findings.Count(f => f.Include)} ticked finding(s) as tracker rows)" : "");
     }
 
     private void OpenInBrowser()

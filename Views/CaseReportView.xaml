@@ -38,7 +38,7 @@
             <Button x:Name="ExportButton" Content="Export ▾" Style="{StaticResource StandardButton}"
                     Click="ExportButton_Click" Padding="14,6" Margin="0,0,8,8"
                     IsEnabled="{Binding HasData}"
-                    ToolTip="Save the report as HTML, RTF or Word">
+                    ToolTip="Save the report as HTML, RTF or Word, or the ticked findings as case tracker rows (.xlsx)">
                 <Button.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="HTML (.html) — self-contained page, print to PDF"
@@ -47,6 +47,9 @@
                                   Command="{Binding ExportCommand}" CommandParameter="docx"/>
                         <MenuItem Header="Rich Text (.rtf) — Word, WordPad, LibreOffice"
                                   Command="{Binding ExportCommand}" CommandParameter="rtf"/>
+                        <Separator/>
+                        <MenuItem Header="Case tracker rows (.xlsx) — the ticked findings, in the tracker's columns"
+                                  Command="{Binding ExportCommand}" CommandParameter="xlsx"/>
                     </ContextMenu>
                 </Button.ContextMenu>
             </Button>

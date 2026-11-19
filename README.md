@@ -67,6 +67,7 @@ CaseFolder\
     ├── CaseSummary.txt      ← hosts ranked by severity, lateral movement, IOCs across hosts
     ├── CaseReport.html      ← case report (Case report panel → Open in browser)
     ├── CaseReport.json      ← your edits to the case report
+    ├── CaseTracker.xlsx     ← critical/high findings as case tracker rows (Excel)
     ├── iocs_discovered.txt  ← IOCs found in findings that are not in iocs.txt yet
     └── uac-hostname-20241114\
         ├── QuickWins.txt / .rtf      ← per-host analyst report (.rtf has the case report's layout: counts, tables per source)
@@ -164,6 +165,15 @@ The **Case report** panel turns the processed output of every collection into a 
 - **Also included**: a timeline, lateral movement between case hosts, a hosts table, indicators (from the case IOC list and those seen on more than one host), intelligence gaps (yours plus ones detected from the data) and next steps (`[x]` marks a step as done).
 
 Your edits are saved in `Processed\CaseReport.json` and kept when you re-run the parser.
+
+### Case tracker export
+
+**Export ▾ → Case tracker rows (.xlsx)** writes the ticked findings as rows for the case tracker spreadsheet, in its column order: `date/time, DataSource, hostsystem, host IP Address, Eventdescription, Account, SourceHost, SourceIP, Destination Host, Remote URL, Destination IP, Mitre Framework, Notes, Analyst, ReportHeading`. Every run also writes `Processed\CaseTracker.xlsx` with all critical and high findings.
+
+- **date/time** is a real Excel date (UTC); **DataSource** is `UAC: <parser>`; **Notes** holds severity, likelihood, the finding's detail, your note and the collection
+- **Account**, **SourceHost/SourceIP** and **Destination Host/IP** are read from the finding text: "from 203.0.113.45" is the source and the host itself the destination; an address the host reached (a download URL, a connection, `scp` target) is the destination. Check them before you paste; anything not stated in the finding is left empty
+- **Mitre Framework** and **ReportHeading** are left empty for you to fill in
+- KapeAnalyser writes the same file with the same columns, so Linux and Windows hosts land in the tracker the same way
 
 ---
 
